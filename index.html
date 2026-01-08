@@ -1,0 +1,1589 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestionale Farmaci - Admin</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- FIREBASE SDK - VERSIONE COMPAT -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<style>
+body {
+font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.sidebar {
+background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+@media print {
+.navbar, .sidebar, .no-print, button, input[type="text"], input[type="number"] {
+display: none !important;
+}
+.table-container {
+width: 100%;
+margin: 0;
+}
+body {
+margin: 0;
+padding: 10mm;
+}
+}
+.loader {
+border: 4px solid #f3f3f3;
+border-top: 4px solid #667eea;
+border-radius: 50%;
+width: 40px;
+height: 40px;
+animation: spin 1s linear infinite;
+}
+@keyframes spin {
+0% { transform: rotate(0deg); }
+100% { transform: rotate(360deg); }
+}
+.role-badge {
+display: inline-block;
+padding: 0.25rem 0.75rem;
+border-radius: 9999px;
+font-size: 0.75rem;
+font-weight: 600;
+}
+.role-badge-admin {
+background-color: #fee2e2;
+color: #991b1b;
+}
+.role-badge-nurse {
+background-color: #dbeafe;
+color: #1e40af;
+}
+</style>
+</head>
+<body class="bg-gray-50">
+
+<!-- NAVBAR -->
+<nav class="navbar bg-white shadow-md sticky top-0 z-40">
+<div class="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white font-bold">💊</div>
+<h1 class="text-2xl font-bold text-gray-800">Gestionale Farmaci</h1>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2">
+<span id="userEmail" class="text-sm text-gray-600"></span>
+<span id="userRole" class="role-badge"></span>
+</div>
+<button id="logoutBtn" onclick="window.logout()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition no-print">Esci</button>
+</div>
+</div>
+</nav>
+
+<div class="flex h-[calc(100vh-70px)]">
+<!-- SIDEBAR -->
+<div class="sidebar w-64 text-white p-6 no-print">
+<nav class="space-y-4" id="navMenu">
+<button onclick="window.showTab('farmaci')" class="nav-btn w-full text-left px-4 py-3 rounded-lg hover:bg-white hover:bg-opacity-20 transition font-medium">
+📋 Lista Farmaci
+</button>
+<button onclick="window.showTab('ordini')" class="nav-btn w-full text-left px-4 py-3 rounded-lg hover:bg-white hover:bg-opacity-20 transition font-medium admin-only" style="display:none;">
+📦 Ordini
+</button>
+<button onclick="window.showTab('import')" class="nav-btn w-full text-left px-4 py-3 rounded-lg hover:bg-white hover:bg-opacity-20 transition font-medium admin-only" style="display:none;">
+📥 Importa CSV
+</button>
+<button onclick="window.showTab('dashboard')" class="nav-btn w-full text-left px-4 py-3 rounded-lg hover:bg-white hover:bg-opacity-20 transition font-medium admin-only" style="display:none;">
+📊 Dashboard
+</button>
+<button onclick="window.showTab('archivio')" class="nav-btn w-full text-left px-4 py-3 rounded-lg hover:bg-white hover:bg-opacity-20 transition font-medium admin-only" style="display:none;">
+📁 Archivio
+</button>
+<button onclick="window.showTab('report')" class="nav-btn w-full text-left px-4 py-3 rounded-lg hover:bg-white hover:bg-opacity-20 transition font-medium admin-only" style="display:none;">
+📈 Report Consumo
+</button>
+</nav>
+
+<div class="mt-8 p-4 bg-white bg-opacity-10 rounded-lg">
+<p class="text-sm text-white text-opacity-80">v5.0 • Con Report</p>
+</div>
+</div>
+
+<!-- MAIN CONTENT -->
+<div class="flex-1 overflow-auto">
+<!-- LOGIN SCREEN -->
+<div id="loginScreen" class="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50">
+<div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4">
+<div class="text-center mb-8">
+<div class="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center text-white text-3xl mx-auto mb-4">💊</div>
+<h2 class="text-3xl font-bold text-gray-800 mb-2">Gestionale Farmaci</h2>
+<p class="text-gray-600">Infermiera - Accedi per continuare</p>
+</div>
+
+<form id="loginForm" onsubmit="window.handleLogin(event)" class="space-y-4">
+<div>
+<label class="block text-sm font-medium text-gray-700 mb-2">Email</label>
+<input type="email" id="loginEmail" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition" placeholder="infermiera@farmacia.it">
+</div>
+<div>
+<label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
+<input type="password" id="loginPassword" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition" placeholder="••••••••">
+</div>
+<button type="submit" class="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold py-2 rounded-lg hover:shadow-lg transition">Accedi</button>
+</form>
+
+<div class="mt-6 p-4 bg-blue-50 rounded-lg text-sm text-gray-700">
+<p class="font-semibold mb-2">Account Test:</p>
+<p class="mb-2"><strong>Infermiera:</strong></p>
+<p>Email: <code class="bg-white px-2 py-1 rounded">infermiera@farmacia.it</code></p>
+<p>Password: <code class="bg-white px-2 py-1 rounded">farmacia</code></p>
+</div>
+
+<div id="loginError" class="mt-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm hidden"></div>
+</div>
+</div>
+
+<!-- APP SCREEN -->
+<div id="appScreen" class="hidden">
+<!-- TAB: FARMACI -->
+<div id="tab-farmaci" class="tab-content p-6">
+<div class="max-w-7xl">
+<div class="mb-6">
+<h2 class="text-3xl font-bold text-gray-800 mb-4">📋 Lista Farmaci</h2>
+<div class="flex flex-col md:flex-row gap-4">
+<input type="text" id="searchInput" placeholder="Cerca per nome, principio, descrizione o AIC..." class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+<button onclick="window.toggleOnlyActive()" id="filterActiveBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold transition text-sm nurse-only-disabled" disabled>
+✓ Solo Attivi
+</button>
+<button onclick="window.generateOrderList()" class="bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded-lg font-semibold transition admin-only" style="display:none;">
+✓ Genera Lista Ordini
+</button>
+<button onclick="window.aggiornaElencoReparto()" class="bg-indigo-500 hover:bg-indigo-600 text-white px-6 py-2 rounded-lg font-semibold transition text-sm no-print">
+🔄 Aggiorna Elenco
+</button>
+</div>
+</div>
+
+<div class="overflow-x-auto bg-white rounded-lg shadow">
+<table class="w-full text-sm">
+<thead class="bg-gradient-to-r from-blue-500 to-purple-600 text-white">
+<tr>
+<th class="px-2 py-2 text-left text-xs">AIC</th>
+<th class="px-2 py-2 text-left text-xs">Nome</th>
+<th class="px-2 py-2 text-left text-xs">Principio</th>
+<th class="px-2 py-2 text-left text-xs">Descrizione</th>
+<th class="px-2 py-2 text-center text-xs admin-only" style="display:none;">Attivo</th>
+<th class="px-2 py-2 text-right text-xs admin-only" style="display:none;">Att.</th>
+<th class="px-2 py-2 text-right text-xs">Q.Rep</th>
+<th class="px-2 py-2 text-right text-xs admin-only" style="display:none;">Min.</th>
+<th class="px-2 py-2 text-right text-xs admin-only" style="display:none;">Qtà Ord</th>
+</tr>
+</thead>
+<tbody id="farmaci-table" class="divide-y divide-gray-200">
+<tr><td colspan="9" class="px-4 py-8 text-center text-gray-500"><div class="loader mx-auto"></div></td></tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+
+<!-- TAB: ORDINI -->
+<div id="tab-ordini" class="tab-content p-6 hidden admin-only" style="display:none;">
+<div class="max-w-7xl">
+<div class="mb-6 flex justify-between items-center">
+<h2 class="text-3xl font-bold text-gray-800">📦 Lista Ordini</h2>
+<button onclick="window.print()" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold transition no-print">
+🖨️ Stampa PDF
+</button>
+</div>
+
+<div class="overflow-x-auto bg-white rounded-lg shadow table-container">
+<table class="w-full text-sm">
+<thead class="bg-gradient-to-r from-green-500 to-emerald-600 text-white">
+<tr>
+<th class="px-2 py-2 text-left text-xs">AIC</th>
+<th class="px-2 py-2 text-left text-xs">Nome</th>
+<th class="px-2 py-2 text-left text-xs">Principio</th>
+<th class="px-2 py-2 text-left text-xs">Descrizione</th>
+<th class="px-2 py-2 text-right text-xs">Att.</th>
+<th class="px-2 py-2 text-right text-xs">Q.Rep</th>
+<th class="px-2 py-2 text-right text-xs">Min.</th>
+<th class="px-2 py-2 text-right text-xs">Qtà Ordine</th>
+</tr>
+</thead>
+<tbody id="ordini-table" class="divide-y divide-gray-200">
+<tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">Nessun ordine generato</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+
+<!-- TAB: IMPORT CSV -->
+<div id="tab-import" class="tab-content p-6 hidden admin-only" style="display:none;">
+<div class="max-w-2xl">
+<h2 class="text-3xl font-bold text-gray-800 mb-6">📥 Importa CSV Prontuario</h2>
+
+<div class="bg-white rounded-lg shadow p-8">
+<div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-blue-500 transition" onclick="document.getElementById('csvFile').click()">
+<div class="text-4xl mb-4">📄</div>
+<p class="text-lg font-semibold text-gray-700 mb-2">Carica il file CSV</p>
+<p class="text-gray-600 mb-4">Clicca per selezionare il prontuario farmaci</p>
+<input type="file" id="csvFile" accept=".csv" onchange="window.handleCSVUpload(event)" class="hidden">
+</div>
+
+<div id="importProgress" class="mt-6 hidden">
+<div class="flex items-center gap-4">
+<div class="loader"></div>
+<div>
+<p class="font-semibold text-gray-700">Importazione in corso...</p>
+<p id="importStatus" class="text-sm text-gray-600">Elaborazione record...</p>
+</div>
+</div>
+</div>
+
+<div id="importResult" class="mt-6 hidden p-4 bg-green-50 border border-green-300 rounded-lg">
+<p class="text-green-700 font-semibold" id="importResultText"></p>
+</div>
+</div>
+
+<div class="mt-8 bg-blue-50 rounded-lg p-6">
+<h3 class="font-semibold text-blue-900 mb-3">Formato CSV Accettati:</h3>
+<p class="text-sm text-blue-800 font-mono bg-white p-3 rounded mb-3">AIC,Principio attivo,Nome,Descrizione,In fascia,Ditta</p>
+<p class="text-sm text-blue-800 font-mono bg-white p-3 rounded mb-3">AIC;Principio attivo;Nome;Descrizione;In fascia;Ditta</p>
+<p class="text-sm text-blue-700">✅ Supporta sia virgola che punto e virgola come separatore!</p>
+</div>
+
+<!-- FORM AGGIUNTA MANUALE FARMACO -->
+<div class="mt-8 bg-green-50 rounded-lg p-6">
+<h3 class="font-semibold text-green-900 mb-4">➕ Aggiungi Farmaco Manualmente</h3>
+<form id="addFarmacoForm" onsubmit="window.handleAddFarmaco(event)" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<div>
+<label class="block text-sm font-medium text-gray-700 mb-1">AIC *</label>
+<input type="text" id="addAIC" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" placeholder="es. 10858030">
+</div>
+<div>
+<label class="block text-sm font-medium text-gray-700 mb-1">Nome *</label>
+<input type="text" id="addNome" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" placeholder="es. MYCOSTATIN">
+</div>
+<div>
+<label class="block text-sm font-medium text-gray-700 mb-1">Principio Attivo *</label>
+<input type="text" id="addPrincipio" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" placeholder="es. Nistatina">
+</div>
+<div>
+<label class="block text-sm font-medium text-gray-700 mb-1">Descrizione</label>
+<input type="text" id="addDescrizione" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" placeholder="es. os sosp 100.000 UI/ml 100 ml">
+</div>
+<div>
+<label class="block text-sm font-medium text-gray-700 mb-1">In Fascia</label>
+<input type="text" id="addFascia" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" placeholder="es. A">
+</div>
+<div>
+<label class="block text-sm font-medium text-gray-700 mb-1">Ditta</label>
+<input type="text" id="addDitta" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" placeholder="es. BRISTOL-MYERS SQUIBB">
+</div>
+<div class="md:col-span-2">
+<button type="submit" class="w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-2 rounded-lg transition">
+✅ Aggiungi Farmaco
+</button>
+</div>
+</form>
+<div id="addFarmacoResult" class="mt-4 hidden p-3 rounded-lg text-sm font-semibold"></div>
+</div>
+</div>
+</div>
+
+<!-- TAB: DASHBOARD -->
+<div id="tab-dashboard" class="tab-content p-6 hidden admin-only" style="display:none;">
+<div class="max-w-7xl">
+<h2 class="text-3xl font-bold text-gray-800 mb-6">📊 Dashboard</h2>
+
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+<div class="bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-lg p-6 shadow-lg">
+<p class="text-sm opacity-90 mb-2">Farmaci Attivi</p>
+<p class="text-4xl font-bold" id="stat-active">0</p>
+</div>
+<div class="bg-gradient-to-br from-red-500 to-red-600 text-white rounded-lg p-6 shadow-lg">
+<p class="text-sm opacity-90 mb-2">In Allerta</p>
+<p class="text-4xl font-bold" id="stat-alert">0</p>
+</div>
+<div class="bg-gradient-to-br from-green-500 to-green-600 text-white rounded-lg p-6 shadow-lg">
+<p class="text-sm opacity-90 mb-2">Valore Ordini €</p>
+<p class="text-4xl font-bold" id="stat-total">€ 0,00</p>
+</div>
+<div class="bg-gradient-to-br from-purple-500 to-purple-600 text-white rounded-lg p-6 shadow-lg">
+<p class="text-sm opacity-90 mb-2">Tot. Farmaci DB</p>
+<p class="text-4xl font-bold" id="stat-total-drugs">0</p>
+</div>
+</div>
+
+<div class="bg-white rounded-lg shadow p-6 mb-8">
+<h3 class="text-xl font-bold text-gray-800 mb-4">Farmaci in Allerta (sotto soglia minima)</h3>
+<div id="alertList" class="space-y-2">
+<p class="text-gray-500">Caricamento dati...</p>
+</div>
+</div>
+
+<div class="bg-white rounded-lg shadow p-6">
+<h3 class="text-xl font-bold text-gray-800 mb-4">📋 Movimentazione Reparto</h3>
+<div id="movimentiList" class="space-y-2 max-h-64 overflow-y-auto bg-gray-50 rounded-lg p-4 border">
+<p class="text-gray-500 text-sm">Caricamento storico...</p>
+</div>
+</div>
+</div>
+</div>
+
+<!-- TAB: ARCHIVIO -->
+<div id="tab-archivio" class="tab-content p-6 hidden admin-only" style="display:none;">
+<div class="max-w-7xl">
+<h2 class="text-3xl font-bold text-gray-800 mb-6">📁 Archivio Movimentazioni</h2>
+
+<div class="mb-6 flex gap-4">
+<button onclick="window.archiviaMovimentiAnnoCorrente()" class="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2 rounded-lg font-semibold transition">
+📦 Archivia Anno Corrente
+</button>
+<button onclick="window.scaricaReportAnnuale()" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold transition">
+📥 Scarica Report
+</button>
+</div>
+
+<div class="bg-white rounded-lg shadow p-6 mb-6">
+<h3 class="text-xl font-bold text-gray-800 mb-4">Archivi Disponibili</h3>
+<div id="archivi-list" class="space-y-3">
+<p class="text-gray-500">Caricamento archivi...</p>
+</div>
+</div>
+
+<div class="bg-white rounded-lg shadow p-6">
+<h3 class="text-xl font-bold text-gray-800 mb-4">Dettagli Archivio Selezionato</h3>
+<div id="archivio-dettagli" class="space-y-4">
+<p class="text-gray-500">Seleziona un archivio per visualizzare i dettagli</p>
+</div>
+</div>
+</div>
+</div>
+
+<!-- TAB: REPORT CONSUMO -->
+<div id="tab-report" class="tab-content p-6 hidden admin-only" style="display:none;">
+<div class="max-w-7xl">
+<h2 class="text-3xl font-bold text-gray-800 mb-6">📈 Report Consumo Annuale</h2>
+
+<div class="mb-6 flex gap-4">
+<select id="annoReport" class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+<option value="">Seleziona Anno</option>
+</select>
+<button onclick="window.generaReportConsumo()" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold transition">
+🔍 Genera Report
+</button>
+<button onclick="window.scaricaReportConsumoCSV()" class="bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded-lg font-semibold transition">
+📥 Scarica CSV
+</button>
+</div>
+
+<!-- Statistiche Generali -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+<div class="bg-blue-50 p-4 rounded-lg border-l-4 border-blue-500">
+<p class="text-sm text-gray-600">Tot. Ordini</p>
+<p class="text-3xl font-bold text-blue-600" id="stat-tot-ordini">0</p>
+</div>
+<div class="bg-green-50 p-4 rounded-lg border-l-4 border-green-500">
+<p class="text-sm text-gray-600">Tot. Reparto</p>
+<p class="text-3xl font-bold text-green-600" id="stat-tot-reparto">0</p>
+</div>
+<div class="bg-purple-50 p-4 rounded-lg border-l-4 border-purple-500">
+<p class="text-sm text-gray-600">Spesa Totale €</p>
+<p class="text-3xl font-bold text-purple-600" id="stat-spesa-totale">€ 0,00</p>
+</div>
+<div class="bg-orange-50 p-4 rounded-lg border-l-4 border-orange-500">
+<p class="text-sm text-gray-600">Farmaci Movimentati</p>
+<p class="text-3xl font-bold text-orange-600" id="stat-farmaci-mov">0</p>
+</div>
+</div>
+
+<!-- Grafici -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+<div class="bg-white rounded-lg shadow p-6">
+<h3 class="text-lg font-bold text-gray-800 mb-4">Consumo Mensile</h3>
+<canvas id="chartConsumoMensile"></canvas>
+</div>
+<div class="bg-white rounded-lg shadow p-6">
+<h3 class="text-lg font-bold text-gray-800 mb-4">Top 10 Farmaci Ordinati</h3>
+<canvas id="chartTopOrdini"></canvas>
+</div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+<div class="bg-white rounded-lg shadow p-6">
+<h3 class="text-lg font-bold text-gray-800 mb-4">Top 10 Farmaci Reparto</h3>
+<canvas id="chartTopReparto"></canvas>
+</div>
+<div class="bg-white rounded-lg shadow p-6">
+<h3 class="text-lg font-bold text-gray-800 mb-4">Spesa per Farmaco</h3>
+<canvas id="chartSpesaFarmaco"></canvas>
+</div>
+</div>
+
+<!-- Tabella Top 25 Farmaci con Prezzi Editabili -->
+<div class="bg-white rounded-lg shadow p-6">
+<div class="flex justify-between items-center mb-4">
+<h3 class="text-lg font-bold text-gray-800">Top 25 Farmaci - Inserisci Prezzi</h3>
+<button onclick="window.salvaPrezziFarmaci()" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-semibold">💾 Salva Prezzi</button>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-sm">
+<thead class="bg-gradient-to-r from-blue-500 to-purple-600 text-white">
+<tr>
+<th class="px-3 py-2 text-left">Pos.</th>
+<th class="px-3 py-2 text-left">AIC</th>
+<th class="px-3 py-2 text-left">Nome Farmaco</th>
+<th class="px-3 py-2 text-right">Ordini</th>
+<th class="px-3 py-2 text-right">Reparto</th>
+<th class="px-3 py-2 text-right">Totale</th>
+<th class="px-3 py-2 text-center">Prezzo Unit. €</th>
+<th class="px-3 py-2 text-right">Spesa Totale €</th>
+</tr>
+</thead>
+<tbody id="tabellaTop25" class="divide-y divide-gray-200">
+<tr><td colspan="8" class="px-3 py-4 text-center text-gray-500">Seleziona un anno per visualizzare i dati</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+
+<!-- Tabella Tutti i Farmaci -->
+<div class="bg-white rounded-lg shadow p-6 mt-6">
+<h3 class="text-lg font-bold text-gray-800 mb-4">Dettagli Consumo Completo (Tutti i Farmaci)</h3>
+<div class="overflow-x-auto">
+<table class="w-full text-sm">
+<thead class="bg-gray-100">
+<tr>
+<th class="px-3 py-2 text-left">AIC</th>
+<th class="px-3 py-2 text-left">Nome</th>
+<th class="px-3 py-2 text-right">Ordini</th>
+<th class="px-3 py-2 text-right">Reparto</th>
+<th class="px-3 py-2 text-right">Totale</th>
+<th class="px-3 py-2 text-right">Spesa €</th>
+<th class="px-3 py-2 text-right">Prezzo Unit.</th>
+</tr>
+</thead>
+<tbody id="tabellaConsumo" class="divide-y divide-gray-200">
+<tr><td colspan="7" class="px-3 py-4 text-center text-gray-500">Seleziona un anno per visualizzare i dati</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<script>
+// ============ FIREBASE INIT ============
+const firebaseConfig = {
+apiKey: "AIzaSyBhRx4NN8IfYHNBxXTXdHq4iyoA41UJn_k",
+authDomain: "gestionale-farmaci.firebaseapp.com",
+projectId: "gestionale-farmaci",
+storageBucket: "gestionale-farmaci.firebasestorage.app",
+messagingSenderId: "787667314680",
+appId: "1:787667314680:web:23860b9b22d4b47b1c180d",
+measurementId: "G-4R6WK5L651"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+let currentUser = null;
+let userRole = null;
+let allFarmaci = [];
+let ordiniAttuali = [];
+let currentEditAIC = null;
+let filterOnlyActive = false;
+
+let movimentiReparto = [];
+let movimentiUnsubscribe = null;
+let archivioSelezionato = null;
+let reportConsumoData = null;
+
+let charts = {};
+
+// ============ GESTIONE RUOLI ============
+
+async function getUserRole(uid) {
+try {
+const userDoc = await db.collection('users').doc(uid).get();
+if (userDoc.exists) {
+return userDoc.data().role || 'nurse';
+}
+return 'nurse';
+} catch (error) {
+console.error('Errore nel recupero del ruolo:', error);
+return 'nurse';
+}
+}
+
+function updateUIBasedOnRole() {
+const adminElements = document.querySelectorAll('.admin-only');
+const nurseElements = document.querySelectorAll('.nurse-only');
+
+if (userRole === 'admin') {
+adminElements.forEach(el => el.style.display = '');
+nurseElements.forEach(el => el.style.display = 'none');
+document.getElementById('userRole').textContent = 'Admin';
+document.getElementById('userRole').className = 'role-badge role-badge-admin';
+document.getElementById('filterActiveBtn').disabled = false;
+} else {
+adminElements.forEach(el => el.style.display = 'none');
+nurseElements.forEach(el => el.style.display = '');
+document.getElementById('userRole').textContent = 'Infermiera';
+document.getElementById('userRole').className = 'role-badge role-badge-nurse';
+filterOnlyActive = true;
+document.getElementById('filterActiveBtn').disabled = true;
+renderFarmaciTable();
+}
+}
+
+// ============ REPORT CONSUMO ============
+
+async function loadAnniDisponibili() {
+try {
+const snapshot = await db.collection('archivio_movimenti').orderBy('anno', 'desc').get();
+const anni = [];
+snapshot.forEach(doc => {
+anni.push(doc.data().anno);
+});
+
+const select = document.getElementById('annoReport');
+select.innerHTML = '<option value="">Seleziona Anno</option>';
+anni.forEach(anno => {
+const option = document.createElement('option');
+option.value = anno;
+option.textContent = `Anno ${anno}`;
+select.appendChild(option);
+});
+
+// Aggiungi anno corrente
+const annoCorrente = new Date().getFullYear();
+if (!anni.includes(annoCorrente)) {
+const option = document.createElement('option');
+option.value = annoCorrente;
+option.textContent = `Anno ${annoCorrente} (Corrente)`;
+select.insertBefore(option, select.children[1]);
+}
+} catch (error) {
+console.error('Errore caricamento anni:', error);
+}
+}
+
+window.generaReportConsumo = async function() {
+const anno = document.getElementById('annoReport').value;
+if (!anno) {
+alert('Seleziona un anno');
+return;
+}
+
+try {
+const consumoData = await calcolaConsumoAnnuale(anno);
+reportConsumoData = consumoData;
+renderReportConsumo(consumoData);
+} catch (error) {
+console.error('Errore generazione report:', error);
+alert(`Errore: ${error.message}`);
+}
+};
+
+async function calcolaConsumoAnnuale(anno) {
+const consumo = {};
+let totalOrdini = 0;
+let totalReparto = 0;
+let totalSpesa = 0;
+const consumoMensile = {};
+
+// Inizializza mesi
+for (let m = 1; m <= 12; m++) {
+consumoMensile[m] = { ordini: 0, reparto: 0 };
+}
+
+// Leggi archivio
+const archivioDoc = await db.collection('archivio_movimenti').doc(`anno_${anno}`).get();
+if (archivioDoc.exists) {
+const movimenti = archivioDoc.data().movimenti || [];
+
+movimenti.forEach(m => {
+const aic = m.aic;
+if (!consumo[aic]) {
+consumo[aic] = {
+aic: aic,
+nome: m.nome,
+principio: m.principio,
+descrizione: m.descrizione,
+ordini: 0,
+reparto: 0,
+spesa: 0
+};
+}
+
+consumo[aic].ordini += m.qtaOrdine || 0;
+consumo[aic].reparto += m.qtaReparto || 0;
+
+totalOrdini += m.qtaOrdine || 0;
+totalReparto += m.qtaReparto || 0;
+
+const mese = new Date(m.dataOra).getMonth() + 1;
+consumoMensile[mese].ordini += m.qtaOrdine || 0;
+consumoMensile[mese].reparto += m.qtaReparto || 0;
+});
+}
+
+// Calcola spesa e prezzo unitario
+const farmaciSnapshot = await db.collection('farmaci').get();
+farmaciSnapshot.forEach(doc => {
+const f = doc.data();
+if (consumo[doc.id]) {
+const totaleQuantita = consumo[doc.id].ordini + consumo[doc.id].reparto;
+consumo[doc.id].spesa = (f.valoreAcquisto || 0) * totaleQuantita;
+consumo[doc.id].prezzoUnitario = f.valoreAcquisto || 0;
+totalSpesa += consumo[doc.id].spesa;
+}
+});
+
+return {
+anno: anno,
+consumo: Object.values(consumo).sort((a, b) => (b.ordini + b.reparto) - (a.ordini + a.reparto)),
+totalOrdini: totalOrdini,
+totalReparto: totalReparto,
+totalSpesa: totalSpesa,
+totalFarmaci: Object.keys(consumo).length,
+consumoMensile: consumoMensile
+};
+}
+
+function renderReportConsumo(data) {
+// Statistiche
+document.getElementById('stat-tot-ordini').textContent = data.totalOrdini;
+document.getElementById('stat-tot-reparto').textContent = data.totalReparto;
+document.getElementById('stat-spesa-totale').textContent = `€ ${data.totalSpesa.toFixed(2)}`;
+document.getElementById('stat-farmaci-mov').textContent = data.totalFarmaci;
+
+// Tabella Top 25 con input prezzi
+const top25 = data.consumo.slice(0, 25);
+const tabellaTop25 = document.getElementById('tabellaTop25');
+tabellaTop25.innerHTML = top25.map((c, idx) => {
+const totale = c.ordini + c.reparto;
+const spesa = (c.prezzoUnitario || 0) * totale;
+return `
+<tr class="${idx % 2 === 0 ? 'bg-gray-50' : ''}">
+<td class="px-3 py-2 font-bold text-center">${idx + 1}</td>
+<td class="px-3 py-2 font-mono text-xs">${c.aic}</td>
+<td class="px-3 py-2 font-semibold truncate">${c.nome}</td>
+<td class="px-3 py-2 text-right">${c.ordini}</td>
+<td class="px-3 py-2 text-right">${c.reparto}</td>
+<td class="px-3 py-2 text-right font-bold">${totale}</td>
+<td class="px-3 py-2 text-center">
+<input type="number" value="${c.prezzoUnitario || 0}" step="0.01" min="0" class="w-20 px-2 py-1 border border-gray-300 rounded text-center text-xs" onchange="window.aggiornaSpesaTop25()" data-aic="${c.aic}" id="prezzo_${c.aic}">
+</td>
+<td class="px-3 py-2 text-right font-bold text-blue-600">€ ${spesa.toFixed(2)}</td>
+</tr>
+`;
+}).join('');
+
+// Tabella Completa
+const tbody = document.getElementById('tabellaConsumo');
+tbody.innerHTML = data.consumo.map(c => `
+<tr>
+<td class="px-3 py-2 font-mono text-xs">${c.aic}</td>
+<td class="px-3 py-2 font-semibold">${c.nome}</td>
+<td class="px-3 py-2 text-right">${c.ordini}</td>
+<td class="px-3 py-2 text-right">${c.reparto}</td>
+<td class="px-3 py-2 text-right font-bold">${c.ordini + c.reparto}</td>
+<td class="px-3 py-2 text-right">€ ${c.spesa.toFixed(2)}</td>
+<td class="px-3 py-2 text-right">€ ${c.prezzoUnitario.toFixed(2)}</td>
+</tr>
+`).join('');
+
+// Grafici
+renderGraficiConsumo(data);
+}
+
+function renderGraficiConsumo(data) {
+// Consumo Mensile
+const mesiLabels = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
+const ordiniMensili = Object.values(data.consumoMensile).map(m => m.ordini);
+const repartoMensili = Object.values(data.consumoMensile).map(m => m.reparto);
+
+if (charts.consumoMensile) charts.consumoMensile.destroy();
+charts.consumoMensile = new Chart(document.getElementById('chartConsumoMensile'), {
+type: 'line',
+data: {
+labels: mesiLabels,
+datasets: [
+{
+label: 'Ordini',
+data: ordiniMensili,
+borderColor: '#3b82f6',
+backgroundColor: 'rgba(59, 130, 246, 0.1)',
+tension: 0.4
+},
+{
+label: 'Reparto',
+data: repartoMensili,
+borderColor: '#10b981',
+backgroundColor: 'rgba(16, 185, 129, 0.1)',
+tension: 0.4
+}
+]
+},
+options: {
+responsive: true,
+plugins: { legend: { position: 'top' } }
+}
+});
+
+// Top 25 Ordini
+const topOrdini = data.consumo.slice(0, 25);
+if (charts.topOrdini) charts.topOrdini.destroy();
+charts.topOrdini = new Chart(document.getElementById('chartTopOrdini'), {
+type: 'bar',
+data: {
+labels: topOrdini.map(c => c.nome.substring(0, 15)),
+datasets: [{
+label: 'Quantità Ordini',
+data: topOrdini.map(c => c.ordini),
+backgroundColor: '#3b82f6'
+}]
+},
+options: {
+indexAxis: 'y',
+responsive: true,
+plugins: { legend: { display: false } }
+}
+});
+
+// Top 25 Repartonconst topReparto = [...data.consumo].sort((a, b) => b.reparto - a.reparto).slice(0, 25);
+if (charts.topReparto) charts.topReparto.destroy();
+charts.topReparto = new Chart(document.getElementById('chartTopReparto'), {
+type: 'bar',
+data: {
+labels: topReparto.map(c => c.nome.substring(0, 15)),
+datasets: [{
+label: 'Quantità Reparto',
+data: topReparto.map(c => c.reparto),
+backgroundColor: '#10b981'
+}]
+},
+options: {
+indexAxis: 'y',
+responsive: true,
+plugins: { legend: { display: false } }
+}
+});
+
+// Spesa per Farmaconconst topSpesa = [...data.consumo].sort((a, b) => b.spesa - a.spesa).slice(0, 25);
+if (charts.spesaFarmaco) charts.spesaFarmaco.destroy();
+charts.spesaFarmaco = new Chart(document.getElementById('chartSpesaFarmaco'), {
+type: 'doughnut',
+data: {
+labels: topSpesa.map(c => c.nome.substring(0, 12)),
+datasets: [{
+data: topSpesa.map(c => c.spesa),
+backgroundColor: [
+'#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+'#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16'
+]
+}]
+},
+options: {
+responsive: true,
+plugins: { legend: { position: 'right' } }
+}
+});
+}
+
+window.aggiornaSpesaTop25 = function() {
+if (!reportConsumoData) return;
+
+const top25 = reportConsumoData.consumo.slice(0, 25);
+let totalSpesaNuova = 0;
+
+top25.forEach((c, idx) => {
+const inputPrezzo = document.getElementById(`prezzo_${c.aic}`);
+if (inputPrezzo) {
+const prezzo = parseFloat(inputPrezzo.value) || 0;
+const totale = c.ordini + c.reparto;
+const spesa = prezzo * totale;
+c.prezzoUnitario = prezzo;
+c.spesa = spesa;
+totalSpesaNuova += spesa;
+}
+});
+
+// Aggiorna statistiche
+reportConsumoData.totalSpesa = totalSpesaNuova;
+document.getElementById('stat-spesa-totale').textContent = `€ ${totalSpesaNuova.toFixed(2)}`;
+
+// Aggiorna tabella completa
+const tbody = document.getElementById('tabellaConsumo');
+tbody.innerHTML = reportConsumoData.consumo.map(c => `
+<tr>
+<td class="px-3 py-2 font-mono text-xs">${c.aic}</td>
+<td class="px-3 py-2 font-semibold">${c.nome}</td>
+<td class="px-3 py-2 text-right">${c.ordini}</td>
+<td class="px-3 py-2 text-right">${c.reparto}</td>
+<td class="px-3 py-2 text-right font-bold">${c.ordini + c.reparto}</td>
+<td class="px-3 py-2 text-right">€ ${c.spesa.toFixed(2)}</td>
+<td class="px-3 py-2 text-right">€ ${c.prezzoUnitario.toFixed(2)}</td>
+</tr>
+`).join('');
+
+// Aggiorna grafici
+renderGraficiConsumo(reportConsumoData);
+};
+
+window.salvaPrezziFarmaci = async function() {
+if (!reportConsumoData) return;
+
+const top25 = reportConsumoData.consumo.slice(0, 25);
+const batch = db.batch();
+
+top25.forEach(c => {
+if (c.prezzoUnitario > 0) {
+const docRef = db.collection('farmaci').doc(c.aic);
+batch.update(docRef, { valoreAcquisto: c.prezzoUnitario });
+}
+});
+
+try {
+await batch.commit();
+alert('✓ Prezzi salvati con successo!');
+} catch (error) {
+console.error('Errore salvataggio prezzi:', error);
+alert(`✗ Errore: ${error.message}`);
+}
+};
+
+window.scaricaReportConsumoCSV = function() {
+if (!reportConsumoData) {
+alert('Genera prima il report');
+return;
+}
+
+const data = reportConsumoData;
+let csv = 'AIC,Nome,Principio,Descrizione,Ordini,Reparto,Totale,Spesa €,Prezzo Unitario €\n';
+
+data.consumo.forEach(c => {
+csv += `"${c.aic}","${c.nome}","${c.principio}","${c.descrizione}",${c.ordini},${c.reparto},${c.ordini + c.reparto},${c.spesa.toFixed(2)},${c.prezzoUnitario.toFixed(2)}\n`;
+});
+
+csv += `\n\nRIEPILOGO ANNUALE\n`;
+csv += `Anno,${data.anno}\n`;
+csv += `Totale Ordini,${data.totalOrdini}\n`;
+csv += `Totale Reparto,${data.totalReparto}\n`;
+csv += `Spesa Totale €,${data.totalSpesa.toFixed(2)}\n`;
+csv += `Farmaci Movimentati,${data.totalFarmaci}\n`;
+
+const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+const link = document.createElement('a');
+link.href = URL.createObjectURL(blob);
+link.download = `report_consumo_${data.anno}.csv`;
+link.click();
+};
+
+// ============ ARCHIVIO ============
+
+window.archiviaMovimentiAnnoCorrente = async function() {
+const annoCorrente = new Date().getFullYear();
+const conferma = confirm(`Archiviare tutti i movimenti dell'anno ${annoCorrente}?\n\nQuesta azione non può essere annullata.`);
+if (!conferma) return;
+
+try {
+const snapshot = await db.collection('movimenti_reparto').get();
+const movimenti = [];
+let totaleMovimenti = 0;
+let totaleFarmaci = 0;
+
+snapshot.forEach(doc => {
+const d = doc.data();
+if (Array.isArray(d.movimenti)) {
+d.movimenti.forEach(m => {
+movimenti.push(m);
+totaleFarmaci++;
+});
+totaleMovimenti++;
+}
+});
+
+await db.collection('archivio_movimenti').doc(`anno_${annoCorrente}`).set({
+anno: annoCorrente,
+dataArchiviazione: new Date(),
+totalDocumenti: totaleMovimenti,
+totalMovimenti: totaleFarmaci,
+movimenti: movimenti,
+createdAt: new Date()
+});
+
+const batch = db.batch();
+snapshot.forEach(doc => {
+batch.delete(doc.ref);
+});
+await batch.commit();
+
+alert(`✓ Archiviati ${totaleFarmaci} movimenti dell'anno ${annoCorrente}`);
+loadArchivi();
+loadAnniDisponibili();
+} catch (error) {
+console.error('Errore archiviazione:', error);
+alert(`✗ Errore: ${error.message}`);
+}
+};
+
+async function loadArchivi() {
+try {
+const snapshot = await db.collection('archivio_movimenti').orderBy('anno', 'desc').get();
+const container = document.getElementById('archivi-list');
+
+if (snapshot.empty) {
+container.innerHTML = '<p class="text-gray-500">Nessun archivio disponibile</p>';
+return;
+}
+
+container.innerHTML = snapshot.docs.map(doc => {
+const data = doc.data();
+const dataArchiviazione = data.dataArchiviazione?.toDate?.()?.toLocaleDateString('it-IT') || 'N/A';
+return `
+<div class="p-4 bg-gray-50 rounded-lg border cursor-pointer hover:bg-gray-100 transition" onclick="window.visualizzaArchivio('${doc.id}', ${JSON.stringify(data).replace(/"/g, '&quot;')})">
+<div class="flex justify-between items-center">
+<div>
+<h4 class="font-bold text-lg">📅 Anno ${data.anno}</h4>
+<p class="text-sm text-gray-600">Archiviato il: ${dataArchiviazione}</p>
+<p class="text-sm text-gray-600">Movimenti: ${data.totalMovimenti}</p>
+</div>
+<div class="text-right">
+<button onclick="event.stopPropagation(); window.scaricaReportArchivio('${doc.id}', ${data.anno})" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm">
+📥 Scarica
+</button>
+</div>
+</div>
+</div>
+`;
+}).join('');
+} catch (error) {
+console.error('Errore caricamento archivi:', error);
+}
+}
+
+window.visualizzaArchivio = function(docId, data) {
+archivioSelezionato = data;
+const container = document.getElementById('archivio-dettagli');
+
+const stats = {
+totalMovimenti: data.totalMovimenti || 0,
+totalDocumenti: data.totalDocumenti || 0,
+dataArchiviazione: data.dataArchiviazione?.toDate?.()?.toLocaleDateString('it-IT') || 'N/A'
+};
+
+container.innerHTML = `
+<div class="grid grid-cols-3 gap-4 mb-6">
+<div class="bg-blue-50 p-4 rounded-lg">
+<p class="text-sm text-gray-600">Movimenti</p>
+<p class="text-3xl font-bold text-blue-600">${stats.totalMovimenti}</p>
+</div>
+<div class="bg-green-50 p-4 rounded-lg">
+<p class="text-sm text-gray-600">Documenti</p>
+<p class="text-3xl font-bold text-green-600">${stats.totalDocumenti}</p>
+</div>
+<div class="bg-purple-50 p-4 rounded-lg">
+<p class="text-sm text-gray-600">Anno</p>
+<p class="text-3xl font-bold text-purple-600">${data.anno}</p>
+</div>
+</div>
+<div class="bg-gray-50 p-4 rounded-lg max-h-96 overflow-y-auto">
+<h4 class="font-bold mb-3">Ultimi 10 Movimenti</h4>
+${(data.movimenti || []).slice(0, 10).map(m => `
+<div class="p-3 bg-white rounded mb-2 text-xs border-l-4 border-blue-500">
+<div class="font-semibold">${m.nome}</div>
+<div class="text-gray-600">${m.dataOra}</div>
+<div class="text-gray-600">Q.Rep: ${m.qtaReparto} | Ordine: ${m.qtaOrdine}</div>
+</div>
+`).join('')}
+</div>
+`;
+};
+
+window.scaricaReportArchivio = function(docId, anno) {
+if (!archivioSelezionato) return;
+
+const movimenti = archivioSelezionato.movimenti || [];
+let csv = 'Data/Ora,AIC,Nome,Principio,Descrizione,Q.Reparto,Q.Ordine,Giacenza Pre,Giacenza Post,Utente,Ruolo\n';
+
+movimenti.forEach(m => {
+csv += `"${m.dataOra}","${m.aic}","${m.nome}","${m.principio}","${m.descrizione}",${m.qtaReparto},${m.qtaOrdine},${m.giacenzaPre},${m.giacenzaPost},"${m.utente}","${m.ruolo}"\n`;
+});
+
+const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+const link = document.createElement('a');
+link.href = URL.createObjectURL(blob);
+link.download = `report_movimenti_${anno}.csv`;
+link.click();
+};
+
+// ============ MOVIMENTAZIONE REPARTO ============
+
+window.aggiornaElencoReparto = async function() {
+const daAggiornare = allFarmaci.filter(f =>
+f.attivo && (f.quantitaReparto > 0 || f.quantitaOrdine > 0)
+);
+
+if (daAggiornare.length === 0) {
+alert('Nessun farmaco con Q.Rep o Qtà Ord da aggiornare.');
+return;
+}
+
+const batch = db.batch();
+const now = new Date();
+const timestamp = now.toLocaleString('it-IT');
+
+const movimentiBatch = [];
+
+daAggiornare.forEach(f => {
+const giacenzaPre = f.giacenzaAttuale || 0;
+const qRep = f.quantitaReparto || 0;
+const qOrd = f.quantitaOrdine || 0;
+
+const giacenzaPost = giacenzaPre - qRep + qOrd;
+
+batch.update(db.collection('farmaci').doc(f.aic), {
+giacenzaAttuale: giacenzaPost,
+quantitaReparto: 0,
+quantitaOrdine: 0
+});
+
+movimentiBatch.push({
+dataOra: timestamp,
+aic: f.aic,
+nome: f.nome || '',
+principio: f.principioAttivo || '',
+descrizione: f.descrizione || '',
+qtaReparto: qRep,
+qtaOrdine: qOrd,
+giacenzaPre,
+giacenzaPost,
+utente: currentUser.email,
+ruolo: userRole
+});
+});
+
+try {
+await batch.commit();
+if (movimentiBatch.length > 0) {
+await db.collection('movimenti_reparto').add({
+data: new Date(),
+movimenti: movimentiBatch,
+totale: movimentiBatch.length,
+utente: currentUser.email,
+ruolo: userRole
+});
+}
+alert(`✓ Aggiornati ${daAggiornare.length} farmaci e registrate le movimentazioni reparto.`);
+} catch (e) {
+console.error('Errore aggiornando elenco reparto:', e);
+alert(`✗ Errore: ${e.message}`);
+}
+};
+
+function setupMovimentiListener() {
+const container = document.getElementById('movimentiList');
+if (!container) {
+console.warn('Container movimentiList non trovato nel DOM');
+return;
+}
+
+if (movimentiUnsubscribe) {
+movimentiUnsubscribe();
+}
+
+setTimeout(() => {
+try {
+movimentiUnsubscribe = db.collection('movimenti_reparto')
+.orderBy('data', 'desc')
+.limit(20)
+.onSnapshot(
+snapshot => {
+console.log('Listener movimenti attivato, documenti ricevuti:', snapshot.size);
+const lista = [];
+snapshot.forEach(doc => {
+const d = doc.data();
+if (Array.isArray(d.movimenti)) {
+d.movimenti.forEach(m => lista.push(m));
+}
+});
+renderMovimentiReparto(lista.slice(0, 50));
+},
+error => {
+console.error('Errore nel listener movimenti:', error);
+renderMovimentiReparto([]);
+}
+);
+} catch (error) {
+console.error('Errore durante la configurazione del listener:', error);
+renderMovimentiReparto([]);
+}
+}, 100);
+}
+
+function renderMovimentiReparto(movimenti) {
+const container = document.getElementById('movimentiList');
+if (!container) {
+console.warn('Container movimentiList non trovato durante il render');
+return;
+}
+
+if (!movimenti || movimenti.length === 0) {
+container.innerHTML = '<p class="text-gray-500 text-sm">Nessun movimento registrato</p>';
+return;
+}
+
+container.innerHTML = movimenti.map(m => `
+<div class="p-3 bg-white border rounded-lg text-xs shadow-sm">
+<div class="flex justify-between items-start mb-1">
+<div class="font-semibold text-gray-800">${m.dataOra}</div>
+<div class="text-xs px-2 py-1 rounded ${m.ruolo === 'admin' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}">
+${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
+</div>
+</div>
+<div class="text-gray-600 text-xs mb-1">👤 ${m.utente}</div>
+<div class="text-blue-700 font-semibold">${m.nome}</div>
+<div class="text-gray-600 text-xs">${m.principio} - ${m.descrizione}</div>
+<div class="mt-2 text-xs grid grid-cols-3 gap-2">
+<div class="bg-orange-50 p-2 rounded">
+<div class="text-gray-600">📦 Reparto</div>
+<div class="font-semibold text-orange-700">${m.qtaReparto}</div>
+</div>
+<div class="bg-blue-50 p-2 rounded">
+<div class="text-gray-600">🛒 Ordine</div>
+<div class="font-semibold text-blue-700">${m.qtaOrdine}</div>
+</div>
+<div class="bg-green-50 p-2 rounded">
+<div class="text-gray-600">📊 Giacenza</div>
+<div class="font-semibold text-green-700">${m.giacenzaPre} → ${m.giacenzaPost}</div>
+</div>
+</div>
+</div>
+`).join('');
+}
+
+// ============ FINE MOVIMENTAZIONE REPARTO ============
+
+console.log('✅ Firebase inizializzato');
+
+auth.onAuthStateChanged(async (user) => {
+console.log('Auth state changed:', user ? user.email : 'No user');
+if (user) {
+currentUser = user;
+userRole = await getUserRole(user.uid);
+document.getElementById('loginScreen').classList.add('hidden');
+document.getElementById('appScreen').classList.remove('hidden');
+document.getElementById('userEmail').textContent = user.email;
+updateUIBasedOnRole();
+loadAllFarmaci();
+setupRealtimeListeners();
+setTimeout(() => {
+if (userRole === 'admin') {
+setupMovimentiListener();
+loadArchivi();
+loadAnniDisponibili();
+}
+}, 200);
+} else {
+currentUser = null;
+userRole = null;
+document.getElementById('loginScreen').classList.remove('hidden');
+document.getElementById('appScreen').classList.add('hidden');
+if (movimentiUnsubscribe) {
+movimentiUnsubscribe();
+movimentiUnsubscribe = null;
+}
+}
+});
+
+window.handleLogin = async function(e) {
+e.preventDefault();
+const email = document.getElementById('loginEmail').value;
+const password = document.getElementById('loginPassword').value;
+const errorDiv = document.getElementById('loginError');
+
+try {
+errorDiv.classList.add('hidden');
+await auth.signInWithEmailAndPassword(email, password);
+} catch (error) {
+errorDiv.textContent = `Errore: ${error.message}`;
+errorDiv.classList.remove('hidden');
+}
+};
+
+window.logout = function() {
+auth.signOut();
+};
+
+async function loadAllFarmaci() {
+try {
+const snapshot = await db.collection('farmaci').get();
+allFarmaci = snapshot.docs.map(doc => ({ aic: doc.id, ...doc.data() }));
+renderFarmaciTable();
+if (userRole === 'admin') {
+updateDashboard();
+}
+} catch (error) {
+console.error('Errore caricamento farmaci:', error);
+}
+}
+
+function setupRealtimeListeners() {
+db.collection('farmaci').onSnapshot((snapshot) => {
+allFarmaci = snapshot.docs.map(doc => ({ aic: doc.id, ...doc.data() }));
+renderFarmaciTable();
+if (userRole === 'admin') {
+updateDashboard();
+}
+});
+}
+
+async function importCSV(data) {
+const lines = data.trim().split('\n');
+const firstLine = lines[0];
+
+const separator = firstLine.includes(';') ? ';' : ',';
+console.log('Separatore rilevato:', separator === ';' ? 'punto e virgola' : 'virgola');
+
+const headers = firstLine.split(separator).map(h => h.trim().toLowerCase());
+
+const aidIdx = headers.indexOf('aic');
+const principioIdx = headers.indexOf('principio attivo');
+const nomeIdx = headers.indexOf('nome');
+const descrIdx = headers.indexOf('descrizione');
+const fasciaIdx = headers.indexOf('in fascia');
+const dittaIdx = headers.indexOf('ditta');
+
+console.log('Header trovati:', { aidIdx, principioIdx, nomeIdx, dittaIdx, descrIdx, fasciaIdx });
+
+if ([aidIdx, principioIdx, nomeIdx].includes(-1)) {
+throw new Error('Colonne obbligatorie mancanti: AIC, Principio attivo, Nome');
+}
+
+const snapshot = await db.collection('farmaci').get();
+const batch = db.batch();
+snapshot.forEach(doc => {
+batch.delete(doc.ref);
+});
+await batch.commit();
+
+const newBatch = db.batch();
+let imported = 0;
+
+for (let i = 1; i < lines.length; i++) {
+const line = lines[i].trim();
+if (!line) continue;
+
+const cols = line.split(separator).map(c => c.trim());
+const aic = cols[aidIdx];
+
+if (!aic) continue;
+
+const docRef = db.collection('farmaci').doc(aic);
+newBatch.set(docRef, {
+principioAttivo: cols[principioIdx] || '',
+nome: cols[nomeIdx] || '',
+descrizione: cols[descrIdx] || '',
+fascia: cols[fasciaIdx] || '',
+attivo: false,
+giacenzaMinima: 0,
+quantitaOrdine: 0,
+giacenzaAttuale: 0,
+quantitaReparto: 0,
+valoreAcquisto: 0,
+createdAt: new Date()
+}, { merge: true });
+
+imported++;
+if (imported % 100 === 0) {
+document.getElementById('importStatus').textContent = `${imported} record processati...`;
+}
+}
+
+await newBatch.commit();
+return imported;
+}
+
+window.handleCSVUpload = async function(e) {
+const file = e.target.files[0];
+if (!file) return;
+
+const reader = new FileReader();
+reader.onload = async (event) => {
+try {
+document.getElementById('importProgress').classList.remove('hidden');
+document.getElementById('importResult').classList.add('hidden');
+
+const imported = await importCSV(event.target.result);
+
+document.getElementById('importProgress').classList.add('hidden');
+document.getElementById('importResult').classList.remove('hidden');
+document.getElementById('importResultText').textContent = `✓ Importati ${imported} farmaci con successo!`;
+
+document.getElementById('csvFile').value = '';
+} catch (error) {
+document.getElementById('importProgress').classList.add('hidden');
+document.getElementById('importResult').classList.remove('hidden');
+document.getElementById('importResult').classList.remove('bg-green-50');
+document.getElementById('importResult').classList.remove('border-green-300');
+document.getElementById('importResult').classList.add('bg-red-50');
+document.getElementById('importResult').classList.add('border-red-300');
+document.getElementById('importResultText').classList.remove('text-green-700');
+document.getElementById('importResultText').classList.add('text-red-700');
+document.getElementById('importResultText').textContent = `✗ Errore: ${error.message}`;
+}
+};
+reader.readAsText(file);
+};
+
+window.handleAddFarmaco = async function(e) {
+e.preventDefault();
+const resultDiv = document.getElementById('addFarmacoResult');
+try {
+const aic = document.getElementById('addAIC').value.trim();
+const nome = document.getElementById('addNome').value.trim();
+const principio = document.getElementById('addPrincipio').value.trim();
+const descrizione = document.getElementById('addDescrizione').value.trim();
+const fascia = document.getElementById('addFascia').value.trim();
+const ditta = document.getElementById('addDitta').value.trim();
+if (!aic || !nome || !principio) {
+throw new Error('AIC, Nome e Principio Attivo sono obbligatori');
+}
+const newFarmaco = {
+aic: aic,
+nome: nome,
+principio: principio,
+principioAttivo: principio,
+descrizione: descrizione,
+inFascia: fascia,
+ditta: ditta,
+attivo: true,
+giacenzaAttuale: 0,
+quantitaReparto: 0,
+quantitaOrdine: 0,
+giacenzaMinima: 0,
+prezzo: 0,
+createdAt: new Date(),
+createdBy: currentUser.email
+};
+await db.collection('farmaci').doc(aic).set(newFarmaco);
+resultDiv.textContent = 'Farmaco aggiunto con successo!';
+resultDiv.className = 'mt-4 p-3 rounded-lg text-sm font-semibold bg-green-100 text-green-700';
+resultDiv.classList.remove('hidden');
+document.getElementById('addFarmacoForm').reset();
+setTimeout(() => { resultDiv.classList.add('hidden'); }, 3000);
+await loadAllFarmaci();
+} catch (error) {
+resultDiv.textContent = 'Errore: ' + error.message;
+resultDiv.className = 'mt-4 p-3 rounded-lg text-sm font-semibold bg-red-100 text-red-700';
+resultDiv.classList.remove('hidden');
+console.error('Errore aggiunta farmaco:', error);
+}
+};
+
+window.showTab = function(tabName) {
+document.querySelectorAll('.tab-content').forEach(tab => tab.classList.add('hidden'));
+document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+};
+
+function renderFarmaciTable() {
+const table = document.getElementById('farmaci-table');
+const search = document.getElementById('searchInput')?.value.toLowerCase() || '';
+
+let filtered = allFarmaci.filter(f => {
+const nome = (f.nome || '').toLowerCase();
+const principio = (f.principioAttivo || '').toLowerCase();
+const descrizione = (f.descrizione || '').toLowerCase();
+const aic = String(f.aic || '').toLowerCase();
+return nome.includes(search) || principio.includes(search) || descrizione.includes(search) || aic.includes(search);
+});
+
+if (filterOnlyActive) {
+filtered = filtered.filter(f => f.attivo);
+}
+
+filtered.sort((a, b) => {
+const principioA = (a.principioAttivo || '').toLowerCase();
+const principioB = (b.principioAttivo || '').toLowerCase();
+return principioA.localeCompare(principioB);
+});
+
+if (filtered.length === 0) {
+table.innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">Nessun farmaco trovato</td></tr>';
+return;
+}
+
+table.innerHTML = filtered.map(f => {
+const giacenzaFutura = f.giacenzaAttuale + f.quantitaOrdine - f.quantitaReparto;
+const isRosso = giacenzaFutura < f.giacenzaMinima;
+
+let rowClass = '';
+if (isRosso) rowClass = 'bg-red-300';
+
+let adminCells = '';
+if (userRole === 'admin') {
+adminCells = `
+<td class="px-2 py-2 text-center">
+<input type="checkbox" ${f.attivo ? 'checked' : ''}
+onchange="window.toggleFarmaco('${f.aic}', this.checked)"
+class="w-3 h-3 cursor-pointer">
+</td>
+<td class="px-2 py-2 text-right text-xs font-semibold cursor-pointer hover:bg-blue-200" onclick="window.startInlineEdit(this, '${f.aic}', 'giacenzaAttuale', ${f.giacenzaAttuale})">${f.giacenzaAttuale}</td>
+`;
+}
+
+return `
+<tr class="${rowClass}">
+<td class="px-2 py-2 text-xs font-mono">${f.aic}</td>
+<td class="px-2 py-2 text-xs font-semibold truncate">${f.nome}</td>
+<td class="px-2 py-2 text-xs truncate">${f.principioAttivo}</td>
+<td class="px-2 py-2 text-xs truncate">${f.descrizione}</td>
+${adminCells}
+<td class="px-2 py-2 text-right text-xs font-semibold cursor-pointer hover:bg-blue-200" onclick="window.startInlineEdit(this, '${f.aic}', 'quantitaReparto', ${f.quantitaReparto})">${f.quantitaReparto}</td>
+${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer hover:bg-blue-200" onclick="window.startInlineEdit(this, '${f.aic}', 'giacenzaMinima', ${f.giacenzaMinima})">${f.giacenzaMinima}</td>
+<td class="px-2 py-2 text-right text-xs cursor-pointer hover:bg-blue-200" onclick="window.startInlineEdit(this, '${f.aic}', 'quantitaOrdine', ${f.quantitaOrdine})">${f.quantitaOrdine}</td>` : ''}
+</tr>
+`;
+}).join('');
+}
+
+window.startInlineEdit = function(cell, aic, field, value) {
+if (userRole === 'nurse' && field !== 'quantitaReparto') {
+alert('Non hai i permessi per modificare questo campo.');
+return;
+}
+
+const originalValue = value;
+const input = document.createElement('input');
+input.type = 'number';
+input.min = '0';
+input.step = '1';
+input.value = value;
+input.className = 'w-full px-1 py-1 border border-blue-500 rounded text-xs';
+
+cell.innerHTML = '';
+cell.appendChild(input);
+input.focus();
+input.select();
+
+const saveEdit = async () => {
+const newValue = parseFloat(input.value);
+if (newValue !== originalValue) {
+try {
+const updateData = {};
+updateData[field] = newValue;
+await db.collection('farmaci').doc(aic).update(updateData);
+
+
+cell.textContent = newValue;
+} catch (error) {
+console.error('Errore nel salvataggio:', error);
+cell.textContent = originalValue;
+}
+} else {
+cell.textContent = originalValue;
+}
+};
+
+input.addEventListener('blur', saveEdit);
+input.addEventListener('keypress', (e) => {
+if (e.key === 'Enter') saveEdit();
+if (e.key === 'Escape') cell.textContent = originalValue;
+});
+input.addEventListener('keydown', (e) => {
+if (e.key === 'Escape') {
+cell.textContent = originalValue;
+}
+});
+}
+
+window.toggleOnlyActive = function() {
+filterOnlyActive = !filterOnlyActive;
+const btn = document.getElementById('filterActiveBtn');
+if (filterOnlyActive) {
+btn.classList.remove('bg-yellow-500', 'hover:bg-yellow-600');
+btn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+btn.innerHTML = '✓ Solo Attivi';
+} else {
+btn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+btn.classList.add('bg-yellow-500', 'hover:bg-yellow-600');
+btn.innerHTML = '👁️ Solo Attivi';
+}
+renderFarmaciTable();
+}
+
+window.generateOrderList = function() {
+ordiniAttuali = allFarmaci.filter(f => f.quantitaOrdine > 0);
+
+renderOrdiniTable();
+window.showTab('ordini');
+};
+
+function renderOrdiniTable() {
+const table = document.getElementById('ordini-table');
+
+if (ordiniAttuali.length === 0) {
+table.innerHTML = '<tr><td colspan="8" class="px-2 py-8 text-center text-gray-500">Nessun ordine necessario</td></tr>';
+return;
+}
+
+table.innerHTML = ordiniAttuali
+.filter(f => f.quantitaOrdine >= 1)
+.map(f => `
+<tr>
+<td class="px-2 py-2 text-xs font-mono">${f.aic}</td>
+<td class="px-2 py-2 text-xs font-semibold truncate">${f.nome}</td>
+<td class="px-2 py-2 text-xs truncate">${f.principioAttivo}</td>
+<td class="px-2 py-2 text-xs truncate">${f.descrizione}</td>
+<td class="px-2 py-2 text-right text-xs">${f.giacenzaAttuale}</td>
+<td class="px-2 py-2 text-right text-xs">${f.quantitaReparto}</td>
+<td class="px-2 py-2 text-right text-xs">${f.giacenzaMinima}</td>
+<td class="px-2 py-2 text-right text-xs">${f.quantitaOrdine}</td>
+</tr>
+`).join('');
+}
+
+window.toggleFarmaco = async function(aic, attivo) {
+try {
+await db.collection('farmaci').doc(aic).update({ attivo });
+} catch (error) {
+console.error('Errore aggiornamento:', error);
+}
+};
+
+function updateDashboard() {
+const active = allFarmaci.filter(f => f.attivo).length;
+const alerts = allFarmaci.filter(f => f.attivo && f.giacenzaAttuale < f.giacenzaMinima).length;
+const totalValue = allFarmaci
+.filter(f => f.attivo && f.giacenzaAttuale < f.giacenzaMinima && f.quantitaOrdine > 0 && f.valoreAcquisto >= 1)
+.reduce((sum, f) => sum + (f.valoreAcquisto * f.quantitaOrdine), 0);
+
+document.getElementById('stat-active').textContent = active;
+document.getElementById('stat-alert').textContent = alerts;
+document.getElementById('stat-total').textContent = `€ ${totalValue.toFixed(2)}`;
+document.getElementById('stat-total-drugs').textContent = allFarmaci.length;
+
+const alertList = document.getElementById('alertList');
+const alertFarmaci = allFarmaci.filter(f => f.attivo && f.giacenzaAttuale < f.giacenzaMinima);
+alertList.innerHTML = alertFarmaci.length > 0
+? alertFarmaci.map(f => `<div class="p-3 bg-red-50 border-l-4 border-red-500"><strong>${f.nome}</strong> - Att: ${f.giacenzaAttuale}, Min: ${f.giacenzaMinima}</div>`).join('')
+: '<p class="text-gray-500">Tutti i farmaci attivi sono in giacenza sufficiente</p>';
+}
+
+const searchInput = document.getElementById('searchInput');
+if (searchInput) {
+searchInput.addEventListener('input', renderFarmaciTable);
+}
+</script>
+
+</body>
+</html>
