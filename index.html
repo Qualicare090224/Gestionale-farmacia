@@ -112,7 +112,7 @@
             <nav class="space-y-4" id="navMenu">
                 <button onclick="window.showTab('farmaci')"
                     class="nav-btn w-full text-left px-4 py-3 rounded-lg hover:bg-white hover:bg-opacity-20 transition font-medium">
-                    📋 Lista Farmaci
+                    📋 Magazzino
                 </button>
                 <button onclick="window.showTab('ordini')"
                     class="nav-btn w-full text-left px-4 py-3 rounded-lg hover:bg-white hover:bg-opacity-20 transition font-medium admin-only"
@@ -203,7 +203,7 @@
                 <div id="tab-farmaci" class="tab-content p-6 h-full flex flex-col">
                     <div class="w-full h-full flex flex-col">
                         <div class="mb-6">
-                            <h2 class="text-3xl font-bold text-gray-800 mb-4">📋 Lista Farmaci</h2>
+                            <h2 class="text-3xl font-bold text-gray-800 mb-4">📋 Magazzino</h2>
                             <div class="flex flex-col md:flex-row gap-4">
                                 <input type="text" id="searchInput"
                                     placeholder="Cerca per nome, principio, descrizione o AIC..."
@@ -811,7 +811,7 @@
             let failedScanData = null; // Per pre-fill aggiunta
             let scannedDrug = null;
             let scannedDrugScarico = null;
-            let filterOnlyActive = false;
+            let filterOnlyActive = true;
 
 
             let movimentiReparto = [];
@@ -1653,20 +1653,23 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
                     if (!aic) continue;
 
                     const docRef = db.collection('farmaci').doc(aic);
-                    writeBatch.set(docRef, {
+                    const farmacoData = {
                         principioAttivo: cols[principioIdx] || '',
                         nome: cols[nomeIdx] || '',
                         descrizione: cols[descrIdx] || '',
                         fascia: cols[fasciaIdx] || '',
                         ditta: cols[dittaIdx] || '',
+                        gtin: gtinIdx !== -1 ? cols[gtinIdx] : '', // Add GTIN
                         attivo: false,
                         giacenzaMinima: 0,
                         quantitaOrdine: 0,
                         giacenzaAttuale: 0,
                         quantitaReparto: 0,
                         valoreAcquisto: 0,
-                        createdAt: new Date()
-                    }, { merge: true });
+                        createdAt: new Date(),
+                        lastUpdate: new Date() // Added lastUpdate
+                    };
+                    writeBatch.set(docRef, farmacoData, { merge: true });
 
                     imported++;
                     batchCount++;
@@ -1735,12 +1738,13 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
 
                 // Pre-fill if data available from failed scan
                 if (typeof failedScanData !== 'undefined' && failedScanData) {
-                    if (failedScanData.aic) {
-                        document.getElementById('addAIC').value = failedScanData.aic;
+                    document.getElementById('addAIC').value = failedScanData.aic || '';
+                    document.getElementById('addScadenza').value = failedScanData.scadenza || '';
+                    if (document.getElementById('addGTIN')) {
+                        document.getElementById('addGTIN').value = failedScanData.gtin || '';
                     }
-                    if (failedScanData.scadenza) {
-                        document.getElementById('addScadenza').value = failedScanData.scadenza;
-                    }
+                    // Try to guess Name/Principio if we had a partial match or just leave empty
+
                     // Reset failedScanData to avoid sticky values? 
                     // Better keep it until successfully added or new scan.
 
@@ -1763,6 +1767,8 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
                     const fascia = document.getElementById('addFascia').value.trim();
                     const ditta = document.getElementById('addDitta').value.trim();
                     const scadenza = document.getElementById('addScadenza').value;
+                    // FIX: Capture GTIN
+                    const gtin = document.getElementById('addGTIN') ? document.getElementById('addGTIN').value.trim() : null;
 
                     if (!aic || !nome || !principio) {
                         throw new Error('AIC, Nome e Principio Attivo sono obbligatori');
@@ -1815,6 +1821,7 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
                         inFascia: fascia,
                         ditta: ditta,
                         scadenza: scadenza || null,
+                        gtin: gtin && gtin.length > 0 ? gtin : null, // FIX: Save Captured GTIN
                         attivo: true,
                         // Mantieni valori esistenti se aggiornamento, altrimenti 0
                         // Ma qui stiamo facendo "Set" (overwrite) o "Update"? 
@@ -2058,13 +2065,22 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                     const result = parseDataMatrix(rawInput);
 
                     if (result && result.aic) {
-                        findDrugByAIC(result.aic, result.scadenza);
+                        findDrugByAIC(result.aic, result.scadenza, result.gtin);
+                    } else if (result && (result.gtin || result.scadenza)) {
+                        // Recognized components but NO AIC
+                        showScanFeedback(`Farmaco non trovato/riconosciuto completamente.`, 'warning');
+                        failedScanData = {
+                            aic: '', // No AIC found
+                            scadenza: result.scadenza || '',
+                            gtin: result.gtin || ''
+                        };
+                        document.getElementById('notFoundCard').classList.remove('hidden');
+                        document.getElementById('notFoundDebugInfo').textContent = `Input: ${result.gtin ? 'GTIN ' + result.gtin : rawInput}`;
                     } else {
                         // Not recognized at all
                         showScanFeedback(`Codice non riconosciuto: "${rawInput}"`, 'error');
-                        // Offer add anyway? Maybe not if it's garbage. 
-                        // But user might want to map it. Let's enable Add New for unknown codes too if they look like barcodes
-                        failedScanData = { aic: rawInput, scadenza: '' };
+                        // Fallback: put raw input in AIC just in case it was a manual simple code
+                        failedScanData = { aic: rawInput, scadenza: '', gtin: '' };
                         document.getElementById('notFoundCard').classList.remove('hidden');
                         document.getElementById('notFoundDebugInfo').textContent = `Input: ${rawInput}`;
                     }
@@ -2085,7 +2101,7 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
 
                 // 1. GTIN (01) - 14 digits
                 // Pattern: (01) or 01 at start or following a previous group
-                const gtinMatch = clean.match(/(?:01|\(01\))(\d{14})/);
+                const gtinMatch = clean.match(/(?:01|\(01\))(\d{12,14})/);
                 if (gtinMatch) {
                     gtin = gtinMatch[1];
                 }
@@ -2102,9 +2118,9 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
 
                 // 3. AIC (716) or embedded in GTIN
                 // User requirement: AIC is in tag (716) or sometimes derived from GTIN if starts with 98
-                const aic716Match = clean.match(/(?:716|\(716\))(\w{9,})/); // alphanumeric AIC usually 9 chars?
-                // Italian AIC is 9 digits usually
-                const aicMatch = clean.match(/(?:716|\(716\))(\d{9})/);
+                const aic716Match = clean.match(/(?:716|\(716\))(\w{8,})/); // alphanumeric AIC usually 9 chars?
+                // Italian AIC is 9 digits usually, but accept 8
+                const aicMatch = clean.match(/(?:716|\(716\))(\d{8,9})/);
 
                 if (aicMatch) {
                     aic = aicMatch[1];
@@ -2125,7 +2141,10 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                     aic = clean.replace(/[\(\)\[\]]/g, '');
                 }
 
-                if (aic) return { aic, scadenza, gtin, raw: scanStr };
+                // Return result if we found at least one significant field, even without AIC
+                if (aic || gtin || scadenza) {
+                    return { aic, scadenza, gtin, raw: scanStr };
+                }
                 return null;
             }
 
