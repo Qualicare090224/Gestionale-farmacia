@@ -230,11 +230,12 @@
                                 <thead
                                     class="bg-gradient-to-r from-blue-500 to-purple-600 text-white sticky top-0 z-10">
                                     <tr>
+                                        <th class="px-2 py-2 text-left text-xs">GTIN</th>
                                         <th class="px-2 py-2 text-left text-xs">AIC</th>
-                                        <th class="px-2 py-2 text-left text-xs">Nome</th>
+                                        <th class="px-2 py-2 text-left text-xs w-32">Nome</th>
                                         <th class="px-2 py-2 text-left text-xs w-24">Principio</th>
                                         <th class="px-2 py-2 text-left text-xs w-24">Ditta</th>
-                                        <th class="px-2 py-2 text-left text-xs">Descrizione</th>
+                                        <th class="px-2 py-2 text-left text-xs w-48">Descrizione</th>
                                         <th class="px-2 py-2 text-center text-xs">Scad.</th>
                                         <th class="px-2 py-2 text-center text-xs admin-only" style="display:none;">
                                             Attivo</th>
@@ -347,6 +348,12 @@
                                     <input type="text" id="addAIC" required
                                         class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
                                         placeholder="es. 10858030">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">GTIN (Opzionale)</label>
+                                    <input type="text" id="addGTIN"
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                                        placeholder="es. 09841234567890">
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Nome *</label>
@@ -657,6 +664,9 @@
                                     <span
                                         class="bg-blue-50 px-2 py-1 rounded border border-blue-200 text-blue-800 font-mono">AIC:
                                         <b id="foundDrugAIC">000000</b></span>
+                                    <span id="foundDrugGTINContainer"
+                                        class="hidden bg-green-50 px-2 py-1 rounded border border-green-200 text-green-800 font-mono">GTIN:
+                                        <b id="foundDrugGTIN"></b></span>
                                     <span
                                         class="bg-blue-50 px-2 py-1 rounded border border-blue-200 text-blue-800">Q.Ord
                                         Attuale: <b id="foundDrugQOrd">0</b></span>
@@ -1355,11 +1365,35 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
 
                     const giacenzaPost = giacenzaPre - qRep + qOrd;
 
+                    // Gestione Inattività (zeroStockSince)
+                    let zeroStockSince = f.zeroStockSince; // Maintain existing or...
+                    const ONE_DAY = 24 * 60 * 60 * 1000;
+
+                    if (giacenzaPost === 0) {
+                        // Se andiamo a zero ora e prima non lo eravamo (o non avevamo il timestamp)
+                        if (giacenzaPre > 0 || !zeroStockSince) {
+                            zeroStockSince = new Date();
+                        }
+                        // Se eravamo già a zero e avevamo il timestamp, lo manteniamo
+                    } else {
+                        // Se torniamo sopra zero
+                        zeroStockSince = null;
+                    }
+
+
                     batch.update(db.collection('farmaci').doc(f.aic), {
                         giacenzaAttuale: giacenzaPost,
                         quantitaReparto: 0,
-                        quantitaOrdine: 0
+                        quantitaOrdine: 0,
+                        zeroStockSince: zeroStockSince,
+                        attivo: f.attivo // Should stay active usually, until cleanup task runs
                     });
+
+                    // Check cleanup immediately? 
+                    // No, "Inactive" rule is: "Stock=0 for 6 months -> Active=False"
+                    // Then "Active=False + Stock=0 for 6 months -> Delete"
+                    // So we need a periodic check or check here if date is old.
+                    // Let's rely on a separate check function that runs on load or can be triggered.
 
                     movimentiBatch.push({
                         dataOra: timestamp,
@@ -1558,8 +1592,22 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
                     renderFarmaciTable();
                     if (userRole === 'admin') {
                         updateDashboard();
+                        // Run check infrequently? Or just every time?
+                        // Every update might be too much if we have many updates. 
+                        // But finding inactive ones is idempotent.
+                        // Let's debounce it or just run it.
+                        // Ideally run only once on start, but here we can't easily distinguish.
+                        // Let's attach it to a timeout to run occasionally?
+                        // Or just expose it globally and call it manually for now to be safe?
+                        // User request implies automatic rule.
+                        // Let's call it but maybe limit frequency if performance issues arise.
+                        // checkInactivityRules(); 
                     }
                 });
+                // Call once on init (approx)
+                setTimeout(() => {
+                    if (userRole === 'admin') checkInactivityRules();
+                }, 5000);
             }
 
             async function importCSV(data) {
@@ -1904,7 +1952,8 @@ class="w-3 h-3 cursor-pointer">
 
                     return `
 <tr class="${rowClass}">
-<td class="px-2 py-2 text-xs font-mono">${f.aic}</td>
+<td class="px-2 py-2 text-xs font-mono text-gray-500">${f.gtin || '-'}</td>
+<td class="px-2 py-2 text-xs font-mono font-bold">${f.aic}</td>
 <td class="px-2 py-2 text-xs font-semibold truncate" title="${f.nome}">${f.nome}</td>
 <td class="px-2 py-2 text-xs truncate max-w-[6rem]" title="${f.principioAttivo}">${f.principioAttivo || '-'}</td>
 <td class="px-2 py-2 text-xs truncate max-w-[6rem]" title="${f.ditta}">${f.ditta || '-'}</td>
@@ -2023,76 +2072,71 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
             };
 
             function parseDataMatrix(scanStr) {
-                // Returns { aic, scadenza, raw }
-                let clean = scanStr.replace(/[\(\)\[\]]/g, '');
+                // Returns { aic, scadenza, gtin, raw }
+                let clean = scanStr;
+                // Remove parentheses for processing but keep logic to identify sections
+                // Standard GS1 usually comes as plain text with FNC1 (sometimes replaced by GS or just plain)
+                // However users report seeing (01)...(17)...
+                // Let's look for specific patterns using regex that accounts for potential parentheses
+
                 let aic = null;
                 let scadenza = null;
+                let gtin = null;
 
-                // 1. Try GS1 Standard (01)GTIN...(17)Exp...
-                // (01) is usually 01 + 14 digits. AIC is inside.
-                // Regex for 01 + 14 digits
-                const gtinMatch = clean.match(/01(\d{14})/);
+                // 1. GTIN (01) - 14 digits
+                // Pattern: (01) or 01 at start or following a previous group
+                const gtinMatch = clean.match(/(?:01|\(01\))(\d{14})/);
                 if (gtinMatch) {
-                    // GTIN: 0 + 98 + AIC(9) + Check
-                    // Extract AIC: remove leading 0, 98, take next 9.
-                    // Example: 0 98 04296211 2 -> AIC 04296211
-                    const gtin = gtinMatch[1];
-                    if (gtin.startsWith('098')) {
-                        aic = gtin.substring(3, 12);
-                    } else {
-                        // Standard GTIN not starting with 98 (EAN13 mapping?)
-                        // Use full GTIN or fail? For IT pharma, usually starts with 098.
-                        // Fallback: try to see if it contains AIC pattern?
-                    }
-                } else {
-                    // Try old regex (098...)
-                    const matchOld = clean.match(/098(\d{9})/);
-                    if (matchOld) aic = matchOld[1];
+                    gtin = gtinMatch[1];
                 }
 
-                // Fallback: Check for format 0 + 9 digits (User reported: 0065704370...)
-                if (!aic) {
-                    const fallbackMatch = clean.match(/^0(\d{9})/);
-                    if (fallbackMatch) aic = fallbackMatch[1];
-                }
-
-                // Fallback: simple 9 digits
-                if (!aic && /^\d{9}$/.test(clean)) {
-                    aic = clean;
-                }
-
-                // 2. Try Expiry (17)YYMMDD
-                // Look for 17 followed by 6 digits
-                // Note: In GS1 streams, 17 is often preceded by other fixed length fields or control chars.
-                // Simple regex search:
-                const expMatch = clean.match(/17(\d{6})/);
+                // 2. Expiry (17) - 6 digits YYMMDD
+                const expMatch = clean.match(/(?:17|\(17\))(\d{6})/);
                 if (expMatch) {
                     const yymmdd = expMatch[1];
-                    // Convert to YYYY-MM-DD
-                    // Assume 20xx
                     const yy = yymmdd.substring(0, 2);
                     const mm = yymmdd.substring(2, 4);
                     const dd = yymmdd.substring(4, 6);
                     scadenza = `20${yy}-${mm}-${dd}`;
                 }
 
-                if (aic) return { aic, scadenza, raw: scanStr };
+                // 3. AIC (716) or embedded in GTIN
+                // User requirement: AIC is in tag (716) or sometimes derived from GTIN if starts with 98
+                const aic716Match = clean.match(/(?:716|\(716\))(\w{9,})/); // alphanumeric AIC usually 9 chars?
+                // Italian AIC is 9 digits usually
+                const aicMatch = clean.match(/(?:716|\(716\))(\d{9})/);
 
-                // If we have scanner input that seems like a barcode but no AIC extracted,
-                // we return null to signal "Parsing Failed".
+                if (aicMatch) {
+                    aic = aicMatch[1];
+                } else if (!aic && gtin && gtin.startsWith('098')) {
+                    // Fallback to GTIN extraction if 98...
+                    aic = gtin.substring(3, 12);
+                }
+
+                // Fallback: simple 098... regex (Old behavior)
+                if (!aic) {
+                    const matchOld = clean.match(/098(\d{9})/);
+                    if (matchOld) aic = matchOld[1];
+                }
+
+                // Fallback: User reported 0065... (13/14 digits?) acting as simple scan
+                if (!aic && /^\d{9}$/.test(clean.replace(/[\(\)\[\]]/g, ''))) {
+                    // Direct AIC entry
+                    aic = clean.replace(/[\(\)\[\]]/g, '');
+                }
+
+                if (aic) return { aic, scadenza, gtin, raw: scanStr };
                 return null;
             }
 
-            function findDrugByAIC(aic, scannedExpiry) {
+            function findDrugByAIC(aic, scannedExpiry, scannedGtin) {
                 // CERCA MATCH ESATTO (AIC + SCADENZA)
                 // Se scannedExpiry è presente, cerca un record con quello specifico AIC e quella specifica Scadenza
                 let matchUrl = null;
 
                 if (scannedExpiry) {
-                    // Cerca se esiste già un lotto con questa scadenza
-                    // Nota: i duplicati hanno ID = AIC_DATA (es. 04296211_2025-12-31) oppure ID = AIC (se è il primo/principale)
-                    // Dobbiamo cercare in allFarmaci
-                    matchUrl = allFarmaci.find(f => f.aic === aic && f.scadenza === scannedExpiry);
+                    // Cerca se esiste già un lotto con questa scadenza E (se abbiamo GTIN) questo GTIN
+                    matchUrl = allFarmaci.find(f => f.aic === aic && f.scadenza === scannedExpiry && (!scannedGtin || f.gtin === scannedGtin));
                 }
 
                 // Se non trovato match esatto per scadenza, o se scadenza non scansionata:
@@ -2106,6 +2150,8 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                 if (matchUrl) {
                     // CASO 1: TROVATO RECORD ESATTO (Stesso AIC e Stessa Scadenza)
                     scannedDrug = matchUrl;
+                    // Ensure we display the scanned GTIN even if not in DB yet
+                    if (scannedGtin) scannedDrug.scannedGtin = scannedGtin;
                     setupFoundDrugCard(scannedDrug, false);
 
                 } else if (drugDataRef) {
@@ -2117,6 +2163,7 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                         scannedDrug = { ...drugDataRef }; // Copia dati base
                         scannedDrug.isNewBatch = true;    // Flag per confirmLoad
                         scannedDrug.newScadenza = scannedExpiry;
+                        scannedDrug.newGtin = scannedGtin; // FIX: Assign scanned GTIN
                         scannedDrug.quantitaOrdine = 0;   // Reset contatori per nuovo lotto
                         scannedDrug.quantitaReparto = 0;
                         scannedDrug.giacenzaAttuale = 0;
@@ -2126,6 +2173,9 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                     } else {
                         // Scadenza non scansionata o coincidente col master -> Usa master
                         scannedDrug = drugDataRef;
+                        // Optional: if master has no GTIN but we scanned one, maybe we should update it?
+                        // For now let's just use it.
+                        if (scannedGtin) scannedDrug.scannedGtin = scannedGtin;
                         setupFoundDrugCard(scannedDrug, false);
                     }
                 } else {
@@ -2134,16 +2184,27 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                     document.getElementById('foundDrugCard').classList.add('hidden');
 
                     // SHOW NOT FOUND + ADD NEW
-                    failedScanData = { aic: aic, scadenza: scannedExpiry || '' };
+                    failedScanData = { aic: aic, scadenza: scannedExpiry || '', gtin: scannedGtin || '' };
                     document.getElementById('notFoundCard').classList.remove('hidden');
-                    document.getElementById('notFoundDebugInfo').textContent = `AIC Rilevato: ${aic}`;
+                    document.getElementById('notFoundDebugInfo').textContent = `AIC Rilevato: ${aic} ${scannedGtin ? '- GTIN: ' + scannedGtin : ''}`;
                 }
             }
+
+
 
             function setupFoundDrugCard(drug, isNewBatch) {
                 document.getElementById('foundDrugName').textContent = drug.nome;
                 document.getElementById('foundDrugDesc').textContent = drug.descrizione || '';
                 document.getElementById('foundDrugAIC').textContent = drug.aic;
+
+                // FIX: Show scanned GTIN or stored GTIN
+                const displayGtin = drug.newGtin || drug.scannedGtin || drug.gtin;
+                if (displayGtin) {
+                    document.getElementById('foundDrugGTIN').textContent = displayGtin;
+                    document.getElementById('foundDrugGTINContainer').classList.remove('hidden');
+                } else {
+                    document.getElementById('foundDrugGTINContainer').classList.add('hidden');
+                }
 
                 // Show Expiry Info
                 const displayScadenza = isNewBatch ? drug.newScadenza : drug.scadenza;
@@ -2208,23 +2269,32 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
 
                     if (scannedDrug.isNewBatch) {
                         // CREAZIONE NUOVO DOCUMENTO PER LOTTO
-                        // ID = AIC_YYYY-MM-DD
-                        const newId = `${scannedDrug.aic}_${scannedDrug.newScadenza}`;
+                        // ID = AIC_YYYY-MM-DD oppure AIC_GTIN_YYYY-MM-DD
+                        // Per unicità, se abbiamo GTIN usiamolo, altrimenti solo data
+                        let newId = `${scannedDrug.aic}_${scannedDrug.newScadenza}`;
+                        if (scannedDrug.newGtin) {
+                            newId = `${scannedDrug.aic}_${scannedDrug.newGtin}_${scannedDrug.newScadenza}`;
+                        }
+
                         docId = newId;
 
                         const newBatchData = {
                             ...scannedDrug, // Copia tutto
                             scadenza: scannedDrug.newScadenza,
+                            gtin: scannedDrug.newGtin || null,
                             quantitaOrdine: qtyToAdd,
                             attivo: true,
                             isBatch: true, // Marker per identificarlo
                             parentAIC: scannedDrug.aic,
-                            createdAt: new Date()
+                            createdAt: new Date(),
+                            // Initialize logic for inactivity
+                            zeroStockSince: null
                         };
 
                         // Rimuovi proprietà temporanee
                         delete newBatchData.isNewBatch;
                         delete newBatchData.newScadenza;
+                        delete newBatchData.newGtin;
                         delete newBatchData.tempScadenza;
                         delete newBatchData.id; // Evita di sovrascrivere ID se presente nella copia
 
@@ -2237,12 +2307,23 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                         const newQOrd = (scannedDrug.quantitaOrdine || 0) + qtyToAdd;
                         const updateData = {
                             quantitaOrdine: newQOrd,
-                            attivo: true
+                            attivo: true,
+                            // If it was inactive because of 0 stock, now it has stock (well, incoming order)
+                            // Technically stock (giacenzaAttuale) is not increased yet, only order quantity.
+                            // But let's clear inactivity status just in case.
+                            zeroStockSince: null
                         };
-                        // Se per caso stavamo aggiornando una scadenza su record esistente (vecchia logica, teniamo per sicurezza)
-                        if (scannedDrug.tempScadenza && !scannedDrug.isBatch) {
-                            // Aggiorniamo scadenza sul master solo se esplicitamente richiesto o vuota?
-                            // Per ora lasciamo invariata logica "Nuovo batch preferito"
+
+
+
+                        // FIX: If we scanned a GTIN and the record doesn't have one, update it.
+                        // scannedDrug.scannedGtin is set in findDrugByAIC fallback
+                        if (scannedDrug.scannedGtin) {
+                            // Update always or only if missing?
+                            // Let's update if missing or different
+                            if (!scannedDrug.gtin || scannedDrug.gtin !== scannedDrug.scannedGtin) {
+                                updateData.gtin = scannedDrug.scannedGtin;
+                            }
                         }
 
                         await db.collection('farmaci').doc(docId).update(updateData);
@@ -2399,6 +2480,70 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                     }
                 }
             }
+
+            async function checkInactivityRules() {
+                console.log("🔍 Checking inactivity rules...");
+                const sixMonthsAgo = new Date();
+                sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+                const batch = db.batch();
+                let paramsChanged = 0;
+                let itemsToDelete = [];
+
+                allFarmaci.forEach(f => {
+                    const stock = f.giacenzaAttuale || 0;
+
+                    // Case 1: Active drug, 0 stock for > 6 months
+                    if (f.attivo && stock === 0 && f.zeroStockSince) {
+                        const zeroDate = f.zeroStockSince.toDate ? f.zeroStockSince.toDate() : new Date(f.zeroStockSince);
+                        if (zeroDate < sixMonthsAgo) {
+                            console.log(`📉 Deactivating ${f.nome} (Zero stock since ${zeroDate.toLocaleDateString()})`);
+                            const docRef = db.collection('farmaci').doc(f.id);
+                            batch.update(docRef, { attivo: false });
+                            paramsChanged++;
+                        }
+                    }
+
+                    // Case 2: Inactive drug (already), 0 stock for > 6 months -> DELETE DUPLICATES/BATCHES
+                    // "se un farmaco non attivo con giacenza = 0 per 6 mesi consecutivi, allora cancella i doppioni con scadenza più vicino ad oggi"
+                    // Interpretation: Clean up old batches/duplicates that are dead.
+                    if (!f.attivo && stock === 0) {
+                        // Use zeroStockSince if available, otherwise fallback to updatedAt or check if it's really old
+                        let referenceDate = f.zeroStockSince ? (f.zeroStockSince.toDate ? f.zeroStockSince.toDate() : new Date(f.zeroStockSince)) : null;
+
+                        // If we don't have zeroStockSince (legacy data), maybe use updatedAt? 
+                        // Let's be conservative: only delete if we strictly know it's been 0 for 6 months via zeroStockSince
+
+                        if (referenceDate && referenceDate < sixMonthsAgo) {
+                            if (f.isBatch || f.id.includes('_')) {
+                                // It's a batch/duplicate. Delete it.
+                                console.log(`🗑️ Deleting old batch ${f.nome} (${f.id})`);
+                                itemsToDelete.push(f.id);
+                            }
+                        }
+                    }
+                });
+
+                if (paramsChanged > 0) {
+                    await batch.commit();
+                    console.log(`✅ Deactivated ${paramsChanged} items.`);
+                }
+
+                if (itemsToDelete.length > 0) {
+                    const deleteBatch = db.batch();
+                    itemsToDelete.forEach(id => {
+                        deleteBatch.delete(db.collection('farmaci').doc(id));
+                    });
+                    await deleteBatch.commit();
+                    console.log(`✅ Deleted ${itemsToDelete.length} old batches.`);
+
+                    // Reload
+                    loadAllFarmaci();
+                }
+            }
+
+            // Call this periodically or after load
+            // For now, let's call it once after initial load completes (in listener)
 
             function showScanFeedbackScarico(msg, type) {
                 const el = document.getElementById('scanFeedbackScarico');
