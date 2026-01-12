@@ -93,7 +93,8 @@
                 <div
                     class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white font-bold">
                     💊</div>
-                <h1 class="text-2xl font-bold text-gray-800">Gestionale Farmaci</h1>
+                <h1 class="text-2xl font-bold text-gray-800">Gestionale Farmaci <span id="pharmacyNameDisplay"
+                        class="text-blue-600 ml-2 text-lg font-normal"></span></h1>
             </div>
             <div class="flex items-center gap-4">
                 <div class="flex items-center gap-2">
@@ -805,6 +806,21 @@
 
             let currentUser = null;
             let userRole = null;
+            let currentPharmacyId = null; // Multi-tenancy: Store Pharmacy ID
+
+            // HELPER: Get correct collection path based on multi-tenancy
+            function getCollectionRef(collectionName) {
+                if (!currentPharmacyId) {
+                    // Fallback for transition or errors - maybe assume 'default' or throw?
+                    // For now, if no pharmacyId, use root (backward compatibility?) or fail.
+                    // Ideally we force migration. Let's start with root legacy if null, 
+                    // but login should have set it.
+                    console.warn('Warning: No pharmacy ID set, accessing root collection:', collectionName);
+                    return db.collection(collectionName);
+                }
+                return db.collection('pharmacies').doc(currentPharmacyId).collection(collectionName);
+            }
+
             let allFarmaci = [];
             let ordiniAttuali = [];
             let currentEditAIC = null;
@@ -827,9 +843,13 @@
                 try {
                     const userDoc = await db.collection('users').doc(uid).get();
                     if (userDoc.exists) {
-                        return userDoc.data().role || 'nurse';
+                        const data = userDoc.data();
+                        return {
+                            role: data.role || 'nurse',
+                            pharmacyId: data.pharmacyId || 'default_pharmacy' // Default for legacy users
+                        };
                     }
-                    return 'nurse';
+                    return { role: 'nurse', pharmacyId: 'default_pharmacy' };
                 } catch (error) {
                     console.error('Errore nel recupero del ruolo:', error);
                     return 'nurse';
@@ -851,17 +871,19 @@
                     nurseElements.forEach(el => el.style.display = '');
                     document.getElementById('userRole').textContent = 'Infermiera';
                     document.getElementById('userRole').className = 'role-badge role-badge-nurse';
-                    filterOnlyActive = true;
                     document.getElementById('filterActiveBtn').disabled = true;
-                    renderFarmaciTable();
                 }
+
+                // Show Pharmacy Name
+                const phName = currentPharmacyId ? currentPharmacyId.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '';
+                document.getElementById('pharmacyNameDisplay').textContent = phName ? `- ${phName}` : '';
             }
 
             // ============ REPORT CONSUMO ============
 
             async function loadAnniDisponibili() {
                 try {
-                    const snapshot = await db.collection('archivio_movimenti').orderBy('anno', 'desc').get();
+                    const snapshot = await getCollectionRef('archivio_movimenti').orderBy('anno', 'desc').get();
                     const anni = [];
                     snapshot.forEach(doc => {
                         anni.push(doc.data().anno);
@@ -919,7 +941,7 @@
                 }
 
                 // Leggi archivio
-                const archivioDoc = await db.collection('archivio_movimenti').doc(`anno_${anno}`).get();
+                const archivioDoc = await getCollectionRef('archivio_movimenti').doc(`anno_${anno}`).get();
                 if (archivioDoc.exists) {
                     const movimenti = archivioDoc.data().movimenti || [];
 
@@ -950,7 +972,7 @@
                 }
 
                 // Calcola spesa e prezzo unitario
-                const farmaciSnapshot = await db.collection('farmaci').get();
+                const farmaciSnapshot = await getCollectionRef('farmaci').get();
                 farmaciSnapshot.forEach(doc => {
                     const f = doc.data();
                     if (consumo[doc.id]) {
@@ -1161,7 +1183,7 @@
 
                 top25.forEach(c => {
                     if (c.prezzoUnitario > 0) {
-                        const docRef = db.collection('farmaci').doc(c.aic);
+                        const docRef = getCollectionRef('farmaci').doc(c.aic);
                         batch.update(docRef, { valoreAcquisto: c.prezzoUnitario });
                     }
                 });
@@ -1210,7 +1232,7 @@
                 if (!conferma) return;
 
                 try {
-                    const snapshot = await db.collection('movimenti_reparto').get();
+                    const snapshot = await getCollectionRef('movimenti_reparto').get();
                     const movimenti = [];
                     let totaleMovimenti = 0;
                     let totaleFarmaci = 0;
@@ -1226,7 +1248,7 @@
                         }
                     });
 
-                    await db.collection('archivio_movimenti').doc(`anno_${annoCorrente}`).set({
+                    await getCollectionRef('archivio_movimenti').doc(`anno_${annoCorrente}`).set({
                         anno: annoCorrente,
                         dataArchiviazione: new Date(),
                         totalDocumenti: totaleMovimenti,
@@ -1252,7 +1274,7 @@
 
             async function loadArchivi() {
                 try {
-                    const snapshot = await db.collection('archivio_movimenti').orderBy('anno', 'desc').get();
+                    const snapshot = await getCollectionRef('archivio_movimenti').orderBy('anno', 'desc').get();
                     const container = document.getElementById('archivi-list');
 
                     if (snapshot.empty) {
@@ -1381,7 +1403,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     }
 
 
-                    batch.update(db.collection('farmaci').doc(f.aic), {
+                    batch.update(getCollectionRef('farmaci').doc(f.aic), {
                         giacenzaAttuale: giacenzaPost,
                         quantitaReparto: 0,
                         quantitaOrdine: 0,
@@ -1413,7 +1435,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 try {
                     await batch.commit();
                     if (movimentiBatch.length > 0) {
-                        await db.collection('movimenti_reparto').add({
+                        await getCollectionRef('movimenti_reparto').add({
                             data: new Date(),
                             movimenti: movimentiBatch,
                             totale: movimentiBatch.length,
@@ -1451,7 +1473,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
 
                 setTimeout(() => {
                     try {
-                        movimentiUnsubscribe = db.collection('movimenti_reparto')
+                        movimentiUnsubscribe = getCollectionRef('movimenti_reparto')
                             .orderBy('data', 'desc')
                             .limit(20)
                             .onSnapshot(
@@ -1530,17 +1552,34 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
                     userRole = await getUserRole(user.uid);
                     document.getElementById('loginScreen').classList.add('hidden');
                     document.getElementById('appScreen').classList.remove('hidden');
+                    // FIX: Handle new object return from getUserRole
+                    const roleData = await getUserRole(user.uid);
+
+                    if (typeof roleData === 'object') {
+                        userRole = roleData.role;
+                        currentPharmacyId = roleData.pharmacyId;
+                    } else {
+                        // Fallback fallback (shouldn't happen with new code)
+                        userRole = roleData;
+                        currentPharmacyId = 'default_pharmacy';
+                    }
+
+                    console.log(`Auth Changed: ${user.email}, Role: ${userRole}, Pharmacy: ${currentPharmacyId}`);
+
                     document.getElementById('userEmail').textContent = user.email;
                     updateUIBasedOnRole();
                     loadAllFarmaci();
+                    loadMovimentiReparto();
                     setupRealtimeListeners();
-                    setTimeout(() => {
-                        if (userRole === 'admin') {
-                            setupMovimentiListener();
-                            loadArchivi();
-                            loadAnniDisponibili();
-                        }
-                    }, 200);
+                    if (userRole === 'admin') {
+                        // Admin stuff
+                        setupMovimentiListener();
+                        loadArchivi();
+                        loadAnniDisponibili();
+                    }
+
+                    document.getElementById('loginScreen').classList.add('hidden');
+                    document.getElementById('appScreen').classList.remove('hidden');
                 } else {
                     currentUser = null;
                     userRole = null;
@@ -1574,7 +1613,7 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
 
             async function loadAllFarmaci() {
                 try {
-                    const snapshot = await db.collection('farmaci').get();
+                    const snapshot = await getCollectionRef('farmaci').get();
                     allFarmaci = snapshot.docs.map(doc => ({ id: doc.id, aic: doc.id, ...doc.data() }));
                     renderFarmaciTable();
                     if (userRole === 'admin') {
@@ -1587,7 +1626,7 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
             }
 
             function setupRealtimeListeners() {
-                db.collection('farmaci').onSnapshot((snapshot) => {
+                getCollectionRef('farmaci').onSnapshot((snapshot) => {
                     allFarmaci = snapshot.docs.map(doc => ({ id: doc.id, aic: doc.id, ...doc.data() }));
                     renderFarmaciTable();
                     if (userRole === 'admin') {
@@ -1619,21 +1658,26 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
 
                 const headers = firstLine.split(separator).map(h => h.trim().toLowerCase());
 
-                const aidIdx = headers.indexOf('aic');
-                const principioIdx = headers.indexOf('principio attivo');
+                const aicIdx = headers.indexOf('aic');
+                const principioIdx = headers.findIndex(h => h.includes('principio'));
                 const nomeIdx = headers.indexOf('nome');
-                const descrIdx = headers.indexOf('descrizione');
-                const fasciaIdx = headers.indexOf('in fascia');
+                const descrIdx = headers.findIndex(h => h.includes('descrizione'));
+                const fasciaIdx = headers.findIndex(h => h.includes('fascia'));
                 const dittaIdx = headers.indexOf('ditta');
+                // FIX: Add GTIN index lookup
+                const gtinIdx = headers.indexOf('gtin');
 
-                console.log('Header trovati:', { aidIdx, principioIdx, nomeIdx, dittaIdx, descrIdx, fasciaIdx });
+                console.log('Header trovati:', { aicIdx, principioIdx, nomeIdx, dittaIdx, descrIdx, fasciaIdx, gtinIdx });
 
-                if ([aidIdx, principioIdx, nomeIdx].includes(-1)) {
+                if (aicIdx === -1) {
+                    alert('Errore: Manca la colonna AIC nel CSV.');
+                    return;
+                } if ([aicIdx, principioIdx, nomeIdx].includes(-1)) {
                     throw new Error('Colonne obbligatorie mancanti: AIC, Principio attivo, Nome');
                 }
 
                 // DELETE OLD DATA SKIPPED - INCREMENTAL IMPORT ENABLED
-                // const snapshot = await db.collection('farmaci').get();
+                // const snapshot = await getCollectionRef('farmaci').get();
                 // ... deletion logic removed to allow split imports
                 console.log('Importazione incrementale avviata (i dati esistenti non verranno cancellati).');
 
@@ -1648,18 +1692,20 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
                     if (!line) continue;
 
                     const cols = line.split(separator).map(c => c.trim());
-                    const aic = cols[aidIdx];
+                    if (cols.length < headers.length) continue;
+
+                    const aic = cols[aicIdx].trim();
 
                     if (!aic) continue;
 
-                    const docRef = db.collection('farmaci').doc(aic);
+                    const docRef = getCollectionRef('farmaci').doc(aic);
                     const farmacoData = {
                         principioAttivo: cols[principioIdx] || '',
                         nome: cols[nomeIdx] || '',
                         descrizione: cols[descrIdx] || '',
                         fascia: cols[fasciaIdx] || '',
                         ditta: cols[dittaIdx] || '',
-                        gtin: gtinIdx !== -1 ? cols[gtinIdx] : '', // Add GTIN
+                        gtin: (gtinIdx !== -1 && cols[gtinIdx]) ? cols[gtinIdx].trim() : null, // Import GTIN if present
                         attivo: false,
                         giacenzaMinima: 0,
                         quantitaOrdine: 0,
@@ -1715,7 +1761,10 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
 
                         document.getElementById('importProgress').classList.add('hidden');
                         document.getElementById('importResult').classList.remove('hidden');
-                        document.getElementById('importResultText').textContent = `✓ Importati ${imported} farmaci con successo!`;
+                        document.getElementById('importResultText').textContent = `✅ Importazione completata con successo (${imported} prodotti).`;
+
+                        // Force Reload
+                        await loadAllFarmaci();
 
                         document.getElementById('csvFile').value = '';
                     } catch (error) {
@@ -1851,7 +1900,7 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
                         farmacoData.createdAt = new Date();
                     }
 
-                    await db.collection('farmaci').doc(docId).set(farmacoData, { merge: true });
+                    await getCollectionRef('farmaci').doc(docId).set(farmacoData, { merge: true });
 
                     resultDiv.textContent = isBatch ? 'Nuovo Lotto Aggiunto!' : 'Farmaco Salvato!';
                     resultDiv.className = 'mt-4 p-3 rounded-lg text-sm font-semibold bg-green-100 text-green-700';
@@ -2001,7 +2050,7 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                         try {
                             const updateData = {};
                             updateData[field] = newValue;
-                            await db.collection('farmaci').doc(aic).update(updateData);
+                            await getCollectionRef('farmaci').doc(aic).update(updateData);
 
                             // Check Cleanup
                             const updatedDrug = allFarmaci.find(f => f.aic === aic);
@@ -2317,7 +2366,7 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                         delete newBatchData.tempScadenza;
                         delete newBatchData.id; // Evita di sovrascrivere ID se presente nella copia
 
-                        await db.collection('farmaci').doc(newId).set(newBatchData);
+                        await getCollectionRef('farmaci').doc(newId).set(newBatchData);
 
                         showScanFeedback(`✅ Creato Nuovo Lotto ${scannedDrug.nome} (Scad: ${formatDateIT(newBatchData.scadenza)})`, 'success');
 
@@ -2345,7 +2394,7 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                             }
                         }
 
-                        await db.collection('farmaci').doc(docId).update(updateData);
+                        await getCollectionRef('farmaci').doc(docId).update(updateData);
                         showScanFeedback(`✅ Aggiornato ${scannedDrug.nome}: Q.Ord aumentata di ${qtyToAdd}`, 'success');
                     }
 
@@ -2386,7 +2435,19 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                     const result = parseDataMatrix(rawInput);
 
                     if (result && result.aic) {
-                        findDrugByAICScarico(result.aic);
+                        // FIX: Pass all params to finding logic
+                        findDrugByAICScarico(result.aic, result.scadenza, result.gtin);
+                    } else if (result && result.gtin && !result.aic) {
+                        // Caso: GTIN trovato ma AIC no (es. (01)... senza (716))
+                        // Proviamo a cercare nel database un farmaco con questo GTIN
+                        const drugByGtin = allFarmaci.find(f => f.gtin === result.gtin);
+                        if (drugByGtin) {
+                            // Trovato! Usiamo il suo AIC
+                            findDrugByAICScarico(drugByGtin.aic, result.scadenza, result.gtin);
+                        } else {
+                            showScanFeedbackScarico(`Nessun farmaco associato al GTIN: ${result.gtin}`, 'error');
+                            document.getElementById('foundDrugCardScarico').classList.add('hidden');
+                        }
                     } else {
                         showScanFeedbackScarico(`Codice AIC non riconosciuto. Input: "${rawInput}"`, 'error');
                         document.getElementById('foundDrugCardScarico').classList.add('hidden');
@@ -2394,8 +2455,22 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                 }
             };
 
-            function findDrugByAICScarico(aic) {
-                const drug = allFarmaci.find(f => f.aic === aic);
+            function findDrugByAICScarico(aic, scannedExpiry, scannedGtin) {
+                // LOGICA DI RICERCA (Simile al Carico per trovare Lotti specifici)
+                let matchUrl = null;
+
+                if (scannedExpiry) {
+                    // Cerca match esatto AIC + Scadenza
+                    matchUrl = allFarmaci.find(f => f.aic === aic && f.scadenza === scannedExpiry && (!scannedGtin || f.gtin === scannedGtin));
+                }
+
+                // Fallback: Master o Qualsiasi
+                const masterDrug = allFarmaci.find(f => f.aic === aic && !f.id.includes('_'));
+                const anyDrug = allFarmaci.find(f => f.aic === aic);
+
+                // Priorità: Match Esatto -> Master -> Qualsiasi
+                const drug = matchUrl || masterDrug || anyDrug;
+
                 if (drug) {
                     scannedDrugScarico = drug;
 
@@ -2404,6 +2479,11 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                     document.getElementById('foundDrugDescScarico').textContent = drug.descrizione || '';
                     document.getElementById('foundDrugAICScarico').textContent = drug.aic;
                     document.getElementById('foundDrugQRepScarico').textContent = drug.quantitaReparto;
+
+                    // Show batch info if specific
+                    if (drug.id.includes('_')) {
+                        document.getElementById('foundDrugDescScarico').innerHTML += `<br><span class="text-xs text-blue-600 font-bold">Lotto Scad: ${formatDateIT(drug.scadenza)}</span>`;
+                    }
 
                     document.getElementById('unloadQty').value = 1;
                     document.getElementById('foundDrugCardScarico').classList.remove('hidden');
@@ -2451,7 +2531,9 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                 const newQRep = (scannedDrugScarico.quantitaReparto || 0) + qtyToUnload;
 
                 try {
-                    await db.collection('farmaci').doc(scannedDrugScarico.aic).update({
+                    // FIX: Use .id (handles batches correctly) instead of .aic
+                    const docId = scannedDrugScarico.id || scannedDrugScarico.aic;
+                    await getCollectionRef('farmaci').doc(docId).update({
                         quantitaReparto: newQRep
                     });
 
@@ -2489,7 +2571,7 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                     if (residuo <= 0) {
                         console.log(`🧹 Batch ${id} esaurito (${residuo}). Eliminazione...`);
                         try {
-                            await db.collection('farmaci').doc(id).delete();
+                            await getCollectionRef('farmaci').doc(id).delete();
                             // Rimuovi da array locale per refresh immediato
                             allFarmaci = allFarmaci.filter(f => f.aic !== id);
                             renderFarmaciTable();
@@ -2517,7 +2599,7 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                         const zeroDate = f.zeroStockSince.toDate ? f.zeroStockSince.toDate() : new Date(f.zeroStockSince);
                         if (zeroDate < sixMonthsAgo) {
                             console.log(`📉 Deactivating ${f.nome} (Zero stock since ${zeroDate.toLocaleDateString()})`);
-                            const docRef = db.collection('farmaci').doc(f.id);
+                            const docRef = getCollectionRef('farmaci').doc(f.id);
                             batch.update(docRef, { attivo: false });
                             paramsChanged++;
                         }
@@ -2551,7 +2633,7 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                 if (itemsToDelete.length > 0) {
                     const deleteBatch = db.batch();
                     itemsToDelete.forEach(id => {
-                        deleteBatch.delete(db.collection('farmaci').doc(id));
+                        deleteBatch.delete(getCollectionRef('farmaci').doc(id));
                     });
                     await deleteBatch.commit();
                     console.log(`✅ Deleted ${itemsToDelete.length} old batches.`);
@@ -2580,11 +2662,34 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
             if (mainSearch) {
                 mainSearch.addEventListener('paste', (e) => {
                     // Piccola pausa per lasciare che il valore venga incollato
-                    setTimeout(() => {
+                    setTimeout(async () => {
                         const val = mainSearch.value;
                         const result = parseDataMatrix(val);
                         if (result && result.aic) {
                             console.log("Detected scan in search:", result.aic);
+                            const roleData = await getUserRole(currentUser.uid);
+                            console.log('DEBUG: roleData retrieved', roleData);
+
+                            if (typeof roleData === 'string') {
+                                alert("ATTENZIONE: Il browser sta usando una versione vecchia del codice. Per favorericarica la pagina con Cmd+Shift+R.");
+                                userRole = roleData;
+                                currentPharmacyId = null;
+                            } else {
+                                userRole = roleData.role;
+                                currentPharmacyId = roleData.pharmacyId;
+                            }
+
+                            // Debug Visibile
+                            if (!currentPharmacyId || currentPharmacyId === 'default_pharmacy') {
+                                // Se siamo ancora in default, avvisiamo per sicurezza
+                                console.warn("Nessun Pharmacy ID rilevato o default.");
+                            } else {
+                                // alert(`Login effettuato: ${userRole} - Farmacia: ${currentPharmacyId}`);
+                            }
+
+                            console.log(`Login User: ${email}, Role: ${userRole}, Pharmacy: ${currentPharmacyId}`);
+
+                            updateUIBasedOnRole();
                             mainSearch.value = result.aic;
                             renderFarmaciTable(); // Filtra per AIC
                         }
@@ -2637,7 +2742,7 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
 
             window.toggleFarmaco = async function (aic, attivo) {
                 try {
-                    await db.collection('farmaci').doc(aic).update({ attivo });
+                    await getCollectionRef('farmaci').doc(aic).update({ attivo });
                 } catch (error) {
                     console.error('Errore aggiornamento:', error);
                 }
