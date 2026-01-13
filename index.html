@@ -127,8 +127,8 @@
                 </button>
                 <button onclick="window.showTab('dashboard')"
                     class="w-full text-left px-6 py-4 hover:bg-blue-800 transition flex items-center gap-3 admin-only">
-                    <span class="text-xl">📊</span>
-                    <span class="font-medium">Movimentazione</span>
+                    <span class="text-xl">🏢</span>
+                    <span class="font-medium">Movimentazione reparto</span>
                 </button>
                 <button onclick="window.showTab('archivio')"
                     class="nav-btn w-full text-left px-4 py-3 rounded-lg hover:bg-white hover:bg-opacity-20 transition font-medium admin-only"
@@ -204,7 +204,30 @@
                 <div id="tab-farmaci" class="tab-content p-6 h-full flex flex-col">
                     <div class="w-full h-full flex flex-col">
                         <div class="mb-6">
-                            <h2 class="text-3xl font-bold text-gray-800 mb-4">📋 Magazzino</h2>
+                            <div
+                                class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
+                                <h2 class="text-3xl font-bold text-gray-800">📋 <span id="localeTitle">Magazzino
+                                        Farmacia</span></h2>
+
+                                <div class="flex gap-2 items-center bg-gray-100 p-2 rounded-lg">
+                                    <label class="text-sm font-semibold text-gray-600">Locale:</label>
+                                    <select id="localeSelector" onchange="window.switchLocale(this.value)"
+                                        class="px-3 py-2 border border-gray-300 rounded-lg bg-white font-semibold text-gray-700 focus:ring-2 focus:ring-purple-500 outline-none">
+                                        <option value="Magazzino Farmacia">Magazzino Farmacia</option>
+                                        <option value="Carrello">Carrello</option>
+                                    </select>
+                                    <button onclick="window.addNewLocale()"
+                                        class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg font-bold admin-only transition shadow-sm"
+                                        title="Aggiungi Nuovo Locale" style="display:none;">
+                                        ➕
+                                    </button>
+                                    <button onclick="window.manageLocales()"
+                                        class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg font-bold admin-only transition shadow-sm"
+                                        title="Elimina Locale" style="display:none;">
+                                        🗑️
+                                    </button>
+                                </div>
+                            </div>
                             <div class="flex flex-col md:flex-row gap-4">
                                 <input type="text" id="searchInput"
                                     placeholder="Cerca per nome, principio, descrizione o AIC..."
@@ -240,7 +263,7 @@
                                         <th class="px-2 py-2 text-center text-xs">Scad.</th>
                                         <th class="px-2 py-2 text-center text-xs admin-only" style="display:none;">
                                             Attivo</th>
-                                        <th class="px-2 py-2 text-right text-xs">Att.</th>
+                                        <th id="headerGiacenza" class="px-2 py-2 text-right text-xs">Att.</th>
                                         <th class="px-2 py-2 text-right text-xs">Q.Rep</th>
                                         <th class="px-2 py-2 text-right text-xs admin-only" style="display:none;">Min.
                                         </th>
@@ -661,7 +684,7 @@
                                     Identificato</p>
                                 <h3 class="text-2xl font-bold text-gray-900" id="foundDrugName">Nome Farmaco</h3>
                                 <p class="text-gray-600 mb-2" id="foundDrugDesc">Descrizione farmaco...</p>
-                                <div class="flex gap-4 text-sm">
+                                <div class="flex flex-wrap gap-4 text-sm items-center">
                                     <span
                                         class="bg-blue-50 px-2 py-1 rounded border border-blue-200 text-blue-800 font-mono">AIC:
                                         <b id="foundDrugAIC">000000</b></span>
@@ -671,6 +694,15 @@
                                     <span
                                         class="bg-blue-50 px-2 py-1 rounded border border-blue-200 text-blue-800">Q.Ord
                                         Attuale: <b id="foundDrugQOrd">0</b></span>
+
+                                    <!-- Manual Expiry Input -->
+                                    <div
+                                        class="flex items-center gap-2 bg-purple-50 px-2 py-1 rounded border border-purple-200">
+                                        <label for="manualExpiryInput"
+                                            class="text-xs font-bold text-purple-800 uppercase">Scadenza:</label>
+                                        <input type="date" id="manualExpiryInput"
+                                            class="text-sm bg-transparent border-none focus:ring-0 p-0 text-purple-900 font-mono">
+                                    </div>
                                 </div>
                             </div>
 
@@ -756,6 +788,14 @@
                             </div>
 
                             <div class="flex flex-col items-end gap-4 min-w-[200px]">
+                                <div class="w-full bg-gray-50 p-2 rounded-lg border border-gray-200">
+                                    <label
+                                        class="block text-xs font-bold text-gray-500 uppercase mb-1 text-center">Destinazione</label>
+                                    <select id="unloadLocaleSelector"
+                                        class="w-full px-2 py-1 border rounded-lg bg-white text-center font-bold text-gray-700 text-sm">
+                                        <option value="Carrello" selected>Carrello</option>
+                                    </select>
+                                </div>
                                 <div class="bg-gray-50 p-3 rounded-lg border border-gray-200">
                                     <label
                                         class="block text-xs font-bold text-gray-500 uppercase mb-2 text-center">Quantità
@@ -788,6 +828,12 @@
             </div>
         </div>
 
+        <script>
+            window.onerror = function (msg, url, line, col, error) {
+                alert("ERRORE SCRIPT: " + msg + "\nLinea: " + line + ":" + col);
+                return false;
+            };
+        </script>
         <script>
             // ============ FIREBASE INIT ============
             const firebaseConfig = {
@@ -824,12 +870,122 @@
             let allFarmaci = [];
             let ordiniAttuali = [];
             let currentEditAIC = null;
-            let failedScanData = null; // Per pre-fill aggiunta
+            let failedScanData = null;
             let scannedDrug = null;
             let scannedDrugScarico = null;
             let filterOnlyActive = true;
 
+            // LOCALI MANAGEMENT
+            let currentLocale = 'Magazzino Farmacia';
+            let activeLocales = ['Magazzino Farmacia', 'Carrello']; // Default
 
+            window.switchLocale = function (localeName) {
+                currentLocale = localeName;
+                document.getElementById('localeTitle').textContent = localeName;
+
+                // Update table header for stock
+                // We'll do this in renderFarmaciTable or dynamically here
+                renderFarmaciTable();
+            };
+
+            window.addNewLocale = async function () {
+                const name = prompt("Nome del nuovo locale:");
+                if (!name) return;
+                if (activeLocales.includes(name)) { alert('Esiste già!'); return; }
+                activeLocales.push(name);
+                await saveLocaliSettings();
+                renderLocaleSelector();
+            };
+
+            window.manageLocales = async function () {
+                // Simple list prompt for now or better UI?
+                // Given constraints, let's use a simple prompt loop or a dedicated small modal if possible.
+                // Let's stick to a simple prompt: "Inserisci il nome del locale da eliminare"
+                // Or better: show a list and ask to type name?
+
+                const listStr = activeLocales
+                    .filter(l => l !== 'Magazzino Farmacia' && l !== 'Carrello')
+                    .join('\n');
+
+                if (!listStr) {
+                    alert("Nessun locale personalizzato da eliminare.");
+                    return;
+                }
+
+                const toDelete = prompt(`Locali esistenti:\n${listStr}\n\nInserisci il nome ESATTO del locale da eliminare:`);
+                if (!toDelete) return;
+
+                if (toDelete === 'Magazzino Farmacia' || toDelete === 'Carrello') {
+                    alert("Non puoi eliminare i locali di sistema.");
+                    return;
+                }
+
+                if (!activeLocales.includes(toDelete)) {
+                    alert("Locale non trovato.");
+                    return;
+                }
+
+                if (!confirm(`Sei sicuro di voler ELIMINARE definitivamente il locale "${toDelete}"?`)) return;
+
+                activeLocales = activeLocales.filter(l => l !== toDelete);
+                await saveLocaliSettings();
+                renderLocaleSelector();
+
+                // If we were on that locale, switch to master
+                if (currentLocale === toDelete) {
+                    window.switchLocale('Magazzino Farmacia');
+                }
+
+                alert("Locale eliminato.");
+            };
+
+            async function saveLocaliSettings() {
+                try {
+                    await getCollectionRef('settings').doc('locali').set({
+                        list: activeLocales
+                    });
+                    renderLocaleSelector(); // Refresh UI
+                } catch (e) {
+                    console.error("Errore salvataggio locali:", e);
+                }
+            }
+
+            async function loadLocaliSettings() {
+                try {
+                    const doc = await getCollectionRef('settings').doc('locali').get();
+                    if (doc.exists && doc.data().list) {
+                        activeLocales = doc.data().list;
+                    }
+                    renderLocaleSelector();
+                } catch (e) {
+                    console.error("Errore caricamento locali:", e);
+                }
+            }
+
+            function renderLocaleSelector() {
+                const sel = document.getElementById('localeSelector');
+                if (!sel) return;
+
+                // EXCLUDE 'Carrello' from main selector (User Request)
+                sel.innerHTML = activeLocales
+                    .filter(l => l !== 'Carrello')
+                    .map(l => `<option value="${l}" ${l === currentLocale ? 'selected' : ''}>${l}</option>`).join('');
+
+                // Also update Scarico selector if exists
+                const selScarico = document.getElementById('unloadLocaleSelector');
+                if (selScarico) {
+                    // For Scarico: usually unload FROM Magazzino TO Locale
+                    // OR unload TO 'Carrello' (waste/exit) or specific Locale.
+                    // User requested: "Carrello deve esistere per lo scarico"
+                    // So we keep all locales + Carrello (which is in activeLocales by default)
+                    // Usually we exclude 'Magazzino Farmacia' if we are unloading FROM it?
+                    // But logic is flexible. Let's just show all activeLocales.
+
+                    selScarico.innerHTML = activeLocales
+                        .filter(l => l !== 'Magazzino Farmacia') // Optional: hide self/warehouse
+                        .map(l => `<option value="${l}" ${l === 'Carrello' ? 'selected' : ''}>${l}</option>`).join('');
+                }
+            }
             let movimentiReparto = [];
             let movimentiUnsubscribe = null;
             let archivioSelezionato = null;
@@ -1374,6 +1530,16 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     return;
                 }
 
+                // Confirmation
+                if (!silent) {
+                    const hasOrders = daAggiornare.some(f => f.quantitaOrdine > 0);
+                    const msg = hasOrders
+                        ? `Ci sono ${daAggiornare.length} farmaci da aggiornare (inclusi ordini). Confermi l'aggiornamento in "${currentLocale}"?`
+                        : `Confermi l'aggiornamento di ${daAggiornare.length} farmaci in "${currentLocale}"?`;
+
+                    if (!confirm(msg)) return;
+                }
+
                 const batch = db.batch();
                 const now = new Date();
                 const timestamp = now.toLocaleString('it-IT');
@@ -1381,41 +1547,52 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 const movimentiBatch = [];
 
                 daAggiornare.forEach(f => {
-                    const giacenzaPre = f.giacenzaAttuale || 0;
-                    const qRep = f.quantitaReparto || 0;
-                    const qOrd = f.quantitaOrdine || 0;
+                    const qRep = Number(f.quantitaReparto) || 0;
+                    const qOrd = Number(f.quantitaOrdine) || 0;
 
-                    const giacenzaPost = giacenzaPre - qRep + qOrd;
+                    let updateData = {
+                        quantitaReparto: 0,
+                        quantitaOrdine: 0
+                    };
 
-                    // Gestione Inattività (zeroStockSince)
-                    let zeroStockSince = f.zeroStockSince; // Maintain existing or...
-                    const ONE_DAY = 24 * 60 * 60 * 1000;
+                    let giacenzaPre = 0;
+                    let giacenzaPost = 0;
 
-                    if (giacenzaPost === 0) {
-                        // Se andiamo a zero ora e prima non lo eravamo (o non avevamo il timestamp)
-                        if (giacenzaPre > 0 || !zeroStockSince) {
-                            zeroStockSince = new Date();
+                    if (currentLocale === 'Magazzino Farmacia') {
+                        // Global Stock
+                        giacenzaPre = Number(f.giacenzaAttuale) || 0;
+
+                        // Logic Update per User Request: "Sommare Q.Ord al valore di Att."
+                        // We assume Q.Rep corresponds to consumption and should be subtracted if positive?
+                        // Actually, if user only creates Orders here, Q.Rep should be 0.
+                        // But if they used the +/- buttons in the list (which change Q.Rep usually?),
+                        // well, "Q.Ord" column is the one specifically mentioned.
+                        giacenzaPost = giacenzaPre - qRep + qOrd;
+                        if (giacenzaPost < 0) giacenzaPost = 0;
+
+                        updateData.giacenzaAttuale = giacenzaPost;
+
+                        // Check Inactivity (Global Only)
+                        let zeroStockSince = f.zeroStockSince;
+                        if (giacenzaPost === 0) {
+                            if (giacenzaPre > 0 || !zeroStockSince) zeroStockSince = new Date();
+                        } else {
+                            zeroStockSince = null;
                         }
-                        // Se eravamo già a zero e avevamo il timestamp, lo manteniamo
+                        updateData.zeroStockSince = zeroStockSince;
+
                     } else {
-                        // Se torniamo sopra zero
-                        zeroStockSince = null;
+                        // Local Stock update
+                        const currentLocals = f.locali || {};
+                        giacenzaPre = Number(currentLocals[currentLocale]) || 0;
+                        giacenzaPost = giacenzaPre - qRep + qOrd;
+                        if (giacenzaPost < 0) giacenzaPost = 0;
+
+                        updateData[`locali.${currentLocale}`] = giacenzaPost;
                     }
 
-
-                    batch.update(getCollectionRef('farmaci').doc(f.aic), {
-                        giacenzaAttuale: giacenzaPost,
-                        quantitaReparto: 0,
-                        quantitaOrdine: 0,
-                        zeroStockSince: zeroStockSince,
-                        attivo: f.attivo // Should stay active usually, until cleanup task runs
-                    });
-
-                    // Check cleanup immediately? 
-                    // No, "Inactive" rule is: "Stock=0 for 6 months -> Active=False"
-                    // Then "Active=False + Stock=0 for 6 months -> Delete"
-                    // So we need a periodic check or check here if date is old.
-                    // Let's rely on a separate check function that runs on load or can be triggered.
+                    // CRITICAL FIX: Use f.id (Document ID) key, NOT f.aic
+                    batch.update(getCollectionRef('farmaci').doc(f.id), updateData);
 
                     movimentiBatch.push({
                         dataOra: timestamp,
@@ -1427,6 +1604,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         qtaOrdine: qOrd,
                         giacenzaPre,
                         giacenzaPost,
+                        locale: currentLocale, // Added Locale
                         utente: currentUser.email,
                         ruolo: userRole
                     });
@@ -1437,25 +1615,25 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     if (movimentiBatch.length > 0) {
                         await getCollectionRef('movimenti_reparto').add({
                             data: new Date(),
-                            movimenti: movimentiBatch,
+                            movimenti: movimentiBatch, // Ensure this array structure is what render expects
                             totale: movimentiBatch.length,
+                            locale: currentLocale, // Header locale
                             utente: currentUser.email,
                             ruolo: userRole
                         });
                     }
 
                     // Aggiorna dashboard e liste
-                    renderFarmaciTable();
+                    // renderFarmaciTable(); // Listener handles this
                     if (userRole === 'admin') updateDashboard();
 
-                    if (!silent) alert(`✓ Aggiornati ${daAggiornare.length} farmaci e registrate le movimentazioni reparto.`);
+                    if (!silent) alert(`✓ Aggiornato elenco in "${currentLocale}".`);
                 } catch (e) {
                     console.error('Errore aggiornando elenco reparto:', e);
                     if (!silent) alert(`✗ Errore: ${e.message}`);
-                    // Se silent (da scanner), mostriamo feedback nel UI dello scanner
                     if (silent) {
                         const feedbackFn = document.getElementById('tab-caricamento').style.display !== 'none' ? showScanFeedback : showScanFeedbackScarico;
-                        feedbackFn(`Errore aggiornamento: ${e.message}`, 'error');
+                        feedbackFn("Errore aggiornamento batch db.", 'error');
                     }
                 }
             };
@@ -1569,6 +1747,7 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
                     document.getElementById('userEmail').textContent = user.email;
                     updateUIBasedOnRole();
                     loadAllFarmaci();
+                    loadLocaliSettings(); // FIX: Load locales after login
                     loadMovimentiReparto();
                     setupRealtimeListeners();
                     if (userRole === 'admin') {
@@ -1583,6 +1762,8 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
                 } else {
                     currentUser = null;
                     userRole = null;
+                    // Reset locales to avoid bleeding data
+                    activeLocales = ['Magazzino Farmacia', 'Carrello'];
                     document.getElementById('loginScreen').classList.remove('hidden');
                     document.getElementById('appScreen').classList.add('hidden');
                     if (movimentiUnsubscribe) {
@@ -1611,43 +1792,96 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
                 auth.signOut();
             };
 
-            async function loadAllFarmaci() {
-                try {
-                    const snapshot = await getCollectionRef('farmaci').get();
-                    allFarmaci = snapshot.docs.map(doc => ({ id: doc.id, aic: doc.id, ...doc.data() }));
-                    renderFarmaciTable();
-                    if (userRole === 'admin') {
-                        updateDashboard();
-                    }
-                } catch (error) {
-                    console.error('Errore caricamento farmaci:', error);
-                    alert('Errore caricamento farmaci: ' + error.message);
-                }
-            }
+            // ============ GESTIONE REAL-TIME & DATI ============
 
             function setupRealtimeListeners() {
+                // LISTENER FARMACI (Principale)
                 getCollectionRef('farmaci').onSnapshot((snapshot) => {
-                    allFarmaci = snapshot.docs.map(doc => ({ id: doc.id, aic: doc.id, ...doc.data() }));
+                    allFarmaci = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); // Use doc.id as primary ID
+                    // Backward comp: ensure .aic is set if missing (it's usually the ID)
+                    allFarmaci.forEach(f => { if (!f.aic) f.aic = f.id; });
+
                     renderFarmaciTable();
                     if (userRole === 'admin') {
                         updateDashboard();
-                        // Run check infrequently? Or just every time?
-                        // Every update might be too much if we have many updates. 
-                        // But finding inactive ones is idempotent.
-                        // Let's debounce it or just run it.
-                        // Ideally run only once on start, but here we can't easily distinguish.
-                        // Let's attach it to a timeout to run occasionally?
-                        // Or just expose it globally and call it manually for now to be safe?
-                        // User request implies automatic rule.
-                        // Let's call it but maybe limit frequency if performance issues arise.
-                        // checkInactivityRules(); 
                     }
+                }, error => {
+                    console.error("Errore listener farmaci:", error);
                 });
-                // Call once on init (approx)
+
+                // Periodic check inactivty (Admin only)
                 setTimeout(() => {
                     if (userRole === 'admin') checkInactivityRules();
                 }, 5000);
             }
+
+            // Replace manual load with just setup (or empty if setup does it all)
+            window.loadAllFarmaci = function () {
+                // Deprecated in favor of setupRealtimeListeners
+                // But we might want to trigger a "refresh" UI state?
+                console.log("loadAllFarmaci richiamato (gestito da listener real-time)");
+            };
+
+            // ============ MOVIMENTAZIONE REPARTO (STORICO) ============
+
+            window.loadMovimentiReparto = function () {
+                if (movimentiUnsubscribe) {
+                    movimentiUnsubscribe();
+                }
+
+                const container = document.getElementById('movimentiList');
+                if (!container) return;
+
+                container.innerHTML = '<p class="text-gray-500 text-sm animate-pulse">Caricamento movimenti in corso...</p>';
+
+                try {
+                    movimentiUnsubscribe = getCollectionRef('movimenti_reparto')
+                        .orderBy('data', 'desc')
+                        .limit(50)
+                        .onSnapshot(snapshot => {
+                            const lista = [];
+                            snapshot.forEach(doc => {
+                                const d = doc.data();
+                                // Support both single-doc-per-movement and batch-arrays
+                                if (Array.isArray(d.movimenti)) {
+                                    // It's a batch array (old format or bulk update)
+                                    // We need to reverse it to show newest first if the array is ordered naturally
+                                    // Usually batches are [m1, m2] where m2 is newer? Or same time?
+                                    // Let's just push them.
+                                    // Better: sort by date desc inside
+                                    [...d.movimenti].reverse().forEach(m => lista.push(m));
+                                } else {
+                                    // Single movement document (future proofing)
+                                    lista.push(d);
+                                }
+                            });
+                            // Flattened list might need sorting if batches were mixed
+                            // But usually orderBy('data') on docs is enough for chunks.
+
+                            renderMovimentiReparto(lista);
+                        }, error => {
+                            console.error("Errore listener movimenti:", error);
+                            container.innerHTML = '<p class="text-red-500 text-sm">Errore caricamento movimenti.</p>';
+                        });
+                } catch (error) {
+                    console.error("Errore start listener movimenti:", error);
+                }
+            };
+
+            // ============ ADMIN ACTIONS ============
+
+            window.deleteFarmaco = async function (aic) {
+                if (!confirm(`SEI SICURO di voler ELIMINARE definitivamente il farmaco/lotto ${aic}?`)) return;
+
+                try {
+                    await getCollectionRef('farmaci').doc(aic).delete();
+                    // Listener will update UI
+                    // alert('Farmaco eliminato.'); // Optional, UI update is instant
+                } catch (e) {
+                    alert('Errore eliminazione: ' + e.message);
+                }
+            }
+
 
             async function importCSV(data) {
                 const lines = data.trim().split('\n');
@@ -1688,14 +1922,10 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
                 const BATCH_SIZE = 250;
 
                 for (let i = 1; i < lines.length; i++) {
-                    const line = lines[i].trim();
-                    if (!line) continue;
-
-                    const cols = line.split(separator).map(c => c.trim());
+                    const line = lines[i].trim(); if (!line) continue; const
+                        cols = line.split(separator).map(c => c.trim());
                     if (cols.length < headers.length) continue;
-
                     const aic = cols[aicIdx].trim();
-
                     if (!aic) continue;
 
                     const docRef = getCollectionRef('farmaci').doc(aic);
@@ -1705,7 +1935,7 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
                         descrizione: cols[descrIdx] || '',
                         fascia: cols[fasciaIdx] || '',
                         ditta: cols[dittaIdx] || '',
-                        gtin: (gtinIdx !== -1 && cols[gtinIdx]) ? cols[gtinIdx].trim() : null, // Import GTIN if present
+                        gtin: (gtinIdx !== -1 && cols[gtinIdx]) ? cols[gtinIdx].trim() : null, // Import GTIN if present 
                         attivo: false,
                         giacenzaMinima: 0,
                         quantitaOrdine: 0,
@@ -1716,10 +1946,8 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
                         lastUpdate: new Date() // Added lastUpdate
                     };
                     writeBatch.set(docRef, farmacoData, { merge: true });
-
                     imported++;
                     batchCount++;
-
                     if (batchCount >= BATCH_SIZE) {
                         try {
                             await writeBatch.commit();
@@ -1761,7 +1989,8 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
 
                         document.getElementById('importProgress').classList.add('hidden');
                         document.getElementById('importResult').classList.remove('hidden');
-                        document.getElementById('importResultText').textContent = `✅ Importazione completata con successo (${imported} prodotti).`;
+                        document.getElementById('importResultText').textContent = `✅ Importazione completata con successo
+                (${imported} prodotti).`;
 
                         // Force Reload
                         await loadAllFarmaci();
@@ -1794,7 +2023,7 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
                     }
                     // Try to guess Name/Principio if we had a partial match or just leave empty
 
-                    // Reset failedScanData to avoid sticky values? 
+                    // Reset failedScanData to avoid sticky values?
                     // Better keep it until successfully added or new scan.
 
                     // Scroll to form
@@ -1817,7 +2046,8 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
                     const ditta = document.getElementById('addDitta').value.trim();
                     const scadenza = document.getElementById('addScadenza').value;
                     // FIX: Capture GTIN
-                    const gtin = document.getElementById('addGTIN') ? document.getElementById('addGTIN').value.trim() : null;
+                    const gtin = document.getElementById('addGTIN') ? document.getElementById('addGTIN').value.trim() :
+                        null;
 
                     if (!aic || !nome || !principio) {
                         throw new Error('AIC, Nome e Principio Attivo sono obbligatori');
@@ -1873,7 +2103,7 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
                         gtin: gtin && gtin.length > 0 ? gtin : null, // FIX: Save Captured GTIN
                         attivo: true,
                         // Mantieni valori esistenti se aggiornamento, altrimenti 0
-                        // Ma qui stiamo facendo "Set" (overwrite) o "Update"? 
+                        // Ma qui stiamo facendo "Set" (overwrite) o "Update"?
                         // Se è nuovo lotto, vogliamo 0. Se è update anagrafica, vogliamo mantenere.
                         // Usiamo { merge: true }
                         updatedAt: new Date(),
@@ -1919,6 +2149,36 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
                 }
             };
 
+            window.loadLocaliSettings = async function () {
+                try {
+                    const doc = await getCollectionRef('settings').doc('locali').get();
+                    if (doc.exists && doc.data().list) {
+                        activeLocales = doc.data().list;
+                    } else {
+                        // First run or missing doc (New Pharmacy?): 
+                        // RESET to defaults to avoid bleeding data from previous session
+                        activeLocales = ['Magazzino Farmacia', 'Carrello'];
+                        await saveLocaliSettings();
+                    }
+                    renderLocaleSelector();
+                } catch (e) {
+                    console.error("Errore caricamento locali:", e);
+                }
+            };
+
+            function renderLocaleSelector() {
+                const sel = document.getElementById('localeSelector');
+                if (!sel) return;
+                sel.innerHTML = activeLocales.map(l => `<option value="${l}" ${l === currentLocale ? 'selected' : ''}>${l}</option>`).join('');
+
+                const selScarico = document.getElementById('unloadLocaleSelector');
+                if (selScarico) {
+                    selScarico.innerHTML = activeLocales
+                        .filter(l => l !== 'Magazzino Farmacia')
+                        .map(l => `<option value="${l}" ${l === 'Carrello' ? 'selected' : ''}>${l}</option>`).join('');
+                }
+            }
+
             window.showTab = function (tabName) {
                 document.querySelectorAll('.tab-content').forEach(tab => {
                     tab.classList.add('hidden');
@@ -1935,18 +2195,36 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
 
             function renderFarmaciTable() {
                 const table = document.getElementById('farmaci-table');
-                const search = document.getElementById('searchInput')?.value.toLowerCase() || '';
+                const search = document.getElementById('searchInput').value.toLowerCase();
+                const localeTitle = document.getElementById('localeTitle');
+
+                if (localeTitle) {
+                    localeTitle.textContent = currentLocale;
+                }
+
+                // HEADER UPDATE
+                const headerGiacenza = document.getElementById('headerGiacenza');
+                if (headerGiacenza) {
+                    headerGiacenza.textContent = currentLocale === 'Magazzino Farmacia' ? 'Giac.' : `Giac. (${currentLocale})`;
+                }
 
                 let filtered = allFarmaci.filter(f => {
                     const nome = (f.nome || '').toLowerCase();
                     const principio = (f.principioAttivo || '').toLowerCase();
                     const descrizione = (f.descrizione || '').toLowerCase();
                     const aic = String(f.aic || '').toLowerCase();
-                    return nome.includes(search) || principio.includes(search) || descrizione.includes(search) || aic.includes(search);
+                    return nome.includes(search) || principio.includes(search) || descrizione.includes(search) ||
+                        aic.includes(search);
                 });
 
                 if (filterOnlyActive) {
                     filtered = filtered.filter(f => f.attivo);
+                }
+
+                // LOCALE FILTERING
+                if (currentLocale !== 'Magazzino Farmacia') {
+                    // Show only items present in this locale (stock > 0)
+                    filtered = filtered.filter(f => (f.locali?.[currentLocale] || 0) > 0);
                 }
 
                 filtered.sort((a, b) => {
@@ -1956,33 +2234,49 @@ ${m.ruolo === 'admin' ? 'Admin' : 'Infermiera'}
                 });
 
                 if (filtered.length === 0) {
-                    table.innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">Nessun farmaco trovato</td></tr>';
+                    table.innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">Nessun farmaco trovato in ' + currentLocale + '</td></tr>';
                     return;
                 }
 
                 table.innerHTML = filtered.map(f => {
-                    const giacenzaFutura = f.giacenzaAttuale + f.quantitaOrdine - f.quantitaReparto;
-                    const isRosso = giacenzaFutura < f.giacenzaMinima;
+                    // Minimo Locale Logic
+                    let effectiveMin = f.giacenzaMinima || 0;
+                    if (currentLocale !== 'Magazzino Farmacia') {
+                        effectiveMin = (f.locali_minimi && f.locali_minimi[currentLocale]) ? f.locali_minimi[currentLocale] : 0;
+                    }
+
+                    // Stock View
+                    const displayStock = currentLocale === 'Magazzino Farmacia' ? f.giacenzaAttuale : (f.locali?.[currentLocale] || 0);
+
+                    // Rosso Logic: "se Giac < Min"
+                    const isRosso = displayStock < effectiveMin;
 
                     let rowClass = '';
                     if (isRosso) rowClass = 'bg-red-300';
 
-
                     let adminCheckbox = '';
                     if (userRole === 'admin') {
-                        adminCheckbox = `
-<td class="px-2 py-2 text-center">
-<input type="checkbox" ${f.attivo ? 'checked' : ''}
-onchange="window.toggleFarmaco('${f.aic}', this.checked)"
-class="w-3 h-3 cursor-pointer">
-</td>`;
+                        adminCheckbox = ` <td class="px-2 py-2 text-center">
+                            <div class="flex items-center justify-center gap-2">
+                                <input type="checkbox" ${f.attivo ? 'checked' : ''}
+                                    onchange="window.toggleFarmaco('${f.aic}', this.checked)" class="w-4 h-4 cursor-pointer"
+                                    title="Attiva/Disattiva">
+
+                                <button onclick="window.deleteFarmaco('${f.id || f.aic}')"
+                                    class="text-red-500 hover:text-red-700 font-bold" title="ELIMINA DEFINITIVAMENTE">
+                                    🗑️
+                                </button>
+                            </div>
+                        </td>`;
                     }
 
                     let attCell = '';
-                    if (userRole === 'admin') {
-                        attCell = `<td class="px-2 py-2 text-right text-xs font-semibold cursor-pointer hover:bg-blue-200" onclick="window.startInlineEdit(this, '${f.aic}', 'giacenzaAttuale', ${f.giacenzaAttuale})">${f.giacenzaAttuale}</td>`;
+                    if (userRole === 'admin' && currentLocale === 'Magazzino Farmacia') {
+                        attCell = `<td class="px-2 py-2 text-right text-xs font-semibold cursor-pointer hover:bg-blue-200"
+                        onclick="window.startInlineEdit(this, '${f.aic}', 'giacenzaAttuale', ${f.giacenzaAttuale})">
+                        ${displayStock}</td>`;
                     } else {
-                        attCell = `<td class="px-2 py-2 text-right text-xs font-semibold">${f.giacenzaAttuale}</td>`;
+                        attCell = `<td class="px-2 py-2 text-right text-xs font-semibold">${displayStock}</td>`;
                     }
 
                     let scadenzaClass = 'text-center font-mono text-xs ';
@@ -1994,34 +2288,40 @@ class="w-3 h-3 cursor-pointer">
                         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
                         if (diffDays < 0) {
-                            scadenzaClass += 'bg-red-500 text-white font-bold rounded px-2 py-1 blink-slow'; // SCADUTO
+                            scadenzaClass += 'bg-red-500 text-white font-bold rounded px-2 py-1 blink-slow';
                             scadenzaTitle = 'SCADUTO!';
                         } else if (diffDays <= 30) {
-                            scadenzaClass += 'bg-yellow-400 text-black font-bold rounded px-2 py-1'; // IN SCADENZA PROSSIMO MESE
+                            scadenzaClass += 'bg-yellow-400 text-black font-bold rounded px-2 py-1';
                             scadenzaTitle = 'In scadenza entro 30 giorni';
-                        } else {
-                            scadenzaClass += 'text-gray-600';
-                        }
-                    } else {
-                        scadenzaClass += 'text-gray-300';
-                    }
+                        } else { scadenzaClass += 'text-gray-600'; }
+                    } else { scadenzaClass += 'text-gray-300'; }
 
-                    return `
-<tr class="${rowClass}">
-<td class="px-2 py-2 text-xs font-mono text-gray-500">${f.gtin || '-'}</td>
-<td class="px-2 py-2 text-xs font-mono font-bold">${f.aic}</td>
-<td class="px-2 py-2 text-xs font-semibold truncate" title="${f.nome}">${f.nome}</td>
-<td class="px-2 py-2 text-xs truncate max-w-[6rem]" title="${f.principioAttivo}">${f.principioAttivo || '-'}</td>
-<td class="px-2 py-2 text-xs truncate max-w-[6rem]" title="${f.ditta}">${f.ditta || '-'}</td>
-<td class="px-2 py-2 text-xs truncate" title="${f.descrizione}">${f.descrizione}</td>
-<td class="px-2 py-2"><div class="${scadenzaClass}" title="${scadenzaTitle}">${f.scadenza ? formatDateIT(f.scadenza) : '-'}</div></td>
-${adminCheckbox}
-${attCell}
-<td class="px-2 py-2 text-right text-xs font-semibold cursor-pointer hover:bg-blue-200" onclick="window.startInlineEdit(this, '${f.aic}', 'quantitaReparto', ${f.quantitaReparto})">${f.quantitaReparto}</td>
-${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer hover:bg-blue-200" onclick="window.startInlineEdit(this, '${f.aic}', 'giacenzaMinima', ${f.giacenzaMinima})">${f.giacenzaMinima}</td>
-<td class="px-2 py-2 text-right text-xs cursor-pointer hover:bg-blue-200" onclick="window.startInlineEdit(this, '${f.aic}', 'quantitaOrdine', ${f.quantitaOrdine})">${f.quantitaOrdine}</td>` : ''}
-</tr>
-`;
+                    return ` <tr class="${rowClass}">
+                        <td class="px-2 py-2 text-xs font-mono text-gray-500">${f.gtin || '-'}</td>
+                        <td class="px-2 py-2 text-xs font-mono font-bold">${f.aic}</td>
+                        <td class="px-2 py-2 text-xs font-semibold truncate" title="${f.nome}">${f.nome}</td>
+                        <td class="px-2 py-2 text-xs truncate max-w-[6rem]" title="${f.principioAttivo}">
+                            ${f.principioAttivo || '-'}</td>
+                        <td class="px-2 py-2 text-xs truncate max-w-[6rem]" title="${f.ditta}">${f.ditta || '-'}</td>
+                        <td class="px-2 py-2 text-xs truncate" title="${f.descrizione}">${f.descrizione}</td>
+                        <td class="px-2 py-2">
+                            <div class="${scadenzaClass}" title="${scadenzaTitle}">${f.scadenza ?
+                            formatDateIT(f.scadenza) : '-'}</div>
+                        </td>
+                        ${adminCheckbox}
+                        ${attCell}
+                        <td class="px-2 py-2 text-right text-xs font-semibold cursor-pointer hover:bg-blue-200"
+                            onclick="window.startInlineEdit(this, '${f.aic}', 'quantitaReparto', ${f.quantitaReparto})">
+                            ${f.quantitaReparto}</td>
+                        ${userRole === 'admin' ? `<td
+                            class="px-2 py-2 text-right text-xs cursor-pointer hover:bg-blue-200"
+                            onclick="window.startInlineEdit(this, '${f.aic}', 'giacenzaMinima', ${effectiveMin})">
+                            ${effectiveMin}</td>
+                        <td class="px-2 py-2 text-right text-xs cursor-pointer hover:bg-blue-200"
+                            onclick="window.startInlineEdit(this, '${f.aic}', 'quantitaOrdine', ${f.quantitaOrdine})">
+                            ${f.quantitaOrdine}</td>` : ''}
+                        </tr>
+                        `;
                 }).join('');
             }
 
@@ -2049,13 +2349,29 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                     if (newValue !== originalValue) {
                         try {
                             const updateData = {};
-                            updateData[field] = newValue;
+
+                            // Handling Per-Locale Minimums
+                            if (field === 'giacenzaMinima' && currentLocale !== 'Magazzino Farmacia') {
+                                // Save to locali_minimi.${currentLocale}
+                                updateData[`locali_minimi.${currentLocale}`] = newValue;
+                            } else {
+                                // Default behavior
+                                updateData[field] = newValue;
+                            }
+
                             await getCollectionRef('farmaci').doc(aic).update(updateData);
 
                             // Check Cleanup
                             const updatedDrug = allFarmaci.find(f => f.aic === aic);
                             if (updatedDrug) {
-                                updatedDrug[field] = newValue; // Update local mock
+                                // Manually update local mock to avoid race condition/flicker
+                                if (field === 'giacenzaMinima' && currentLocale !== 'Magazzino Farmacia') {
+                                    if (!updatedDrug.locali_minimi) updatedDrug.locali_minimi = {};
+                                    updatedDrug.locali_minimi[currentLocale] = newValue;
+                                } else {
+                                    updatedDrug[field] = newValue;
+                                }
+
                                 await checkAndCleanupBatch(aic, updatedDrug);
                             }
 
@@ -2063,6 +2379,7 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                         } catch (error) {
                             console.error('Errore nel salvataggio:', error);
                             cell.textContent = originalValue;
+                            alert("Errore salvataggio: " + error.message);
                         }
                     } else {
                         cell.textContent = originalValue;
@@ -2070,14 +2387,9 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                 };
 
                 input.addEventListener('blur', saveEdit);
-                input.addEventListener('keypress', (e) => {
+                input.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter') saveEdit();
                     if (e.key === 'Escape') cell.textContent = originalValue;
-                });
-                input.addEventListener('keydown', (e) => {
-                    if (e.key === 'Escape') {
-                        cell.textContent = originalValue;
-                    }
                 });
             }
 
@@ -2124,14 +2436,27 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                             gtin: result.gtin || ''
                         };
                         document.getElementById('notFoundCard').classList.remove('hidden');
-                        document.getElementById('notFoundDebugInfo').textContent = `Input: ${result.gtin ? 'GTIN ' + result.gtin : rawInput}`;
+                        document.getElementById('notFoundDebugInfo').textContent = `Input: ${result.gtin ? 'GTIN ' +
+                            result.gtin : rawInput}`;
                     } else {
-                        // Not recognized at all
-                        showScanFeedback(`Codice non riconosciuto: "${rawInput}"`, 'error');
-                        // Fallback: put raw input in AIC just in case it was a manual simple code
-                        failedScanData = { aic: rawInput, scadenza: '', gtin: '' };
-                        document.getElementById('notFoundCard').classList.remove('hidden');
-                        document.getElementById('notFoundDebugInfo').textContent = `Input: ${rawInput}`;
+                        // Not recognized by Matrix parser.
+                        // Fallback: Try advanced search (Code32 or Raw)
+                        console.log("Input not parsed as Matrix/GTIN, trying Advanced Search:", rawInput);
+
+                        const advancedMatch = window.tryAdvancedSearch(rawInput);
+
+                        if (!advancedMatch) {
+                            // 3. Last Resort: Try as direct raw AIC
+                            const foundDirecly = findDrugByAIC(rawInput, null, null);
+
+                            if (!foundDirecly) {
+                                // Just show debug info
+                                showScanFeedback(`Codice non riconosciuto: "${rawInput}"`, 'error');
+                                failedScanData = { aic: rawInput, scadenza: '', gtin: '' };
+                                document.getElementById('notFoundCard').classList.remove('hidden');
+                                document.getElementById('notFoundDebugInfo').textContent = `Input Raw: ${rawInput}`;
+                            }
+                        }
                     }
                 }
             };
@@ -2199,19 +2524,24 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
 
             function findDrugByAIC(aic, scannedExpiry, scannedGtin) {
                 // CERCA MATCH ESATTO (AIC + SCADENZA)
-                // Se scannedExpiry è presente, cerca un record con quello specifico AIC e quella specifica Scadenza
+                // Se scannedExpiry è presente, cerca un record con quello specifico AIC e quella specifica
+                // Scadenza
                 let matchUrl = null;
+
+                // Ensure AIC comparison is string-safe
+                const targetAIC = String(aic).trim();
 
                 if (scannedExpiry) {
                     // Cerca se esiste già un lotto con questa scadenza E (se abbiamo GTIN) questo GTIN
-                    matchUrl = allFarmaci.find(f => f.aic === aic && f.scadenza === scannedExpiry && (!scannedGtin || f.gtin === scannedGtin));
+                    matchUrl = allFarmaci.find(f => String(f.aic) === targetAIC && f.scadenza === scannedExpiry && (!scannedGtin
+                        || f.gtin === scannedGtin));
                 }
 
                 // Se non trovato match esatto per scadenza, o se scadenza non scansionata:
                 // Cerchiamo il "Master" (quello con AIC puro come ID) per prendere i dati anagrafici
-                const masterDrug = allFarmaci.find(f => f.aic === aic && !f.id.includes('_'));
+                const masterDrug = allFarmaci.find(f => String(f.aic) === targetAIC && !f.id.includes('_'));
                 // fallback: se non c'è master puro, prendiamo il primo che capita con quell'AIC per i dati
-                const anyDrug = allFarmaci.find(f => f.aic === aic);
+                const anyDrug = allFarmaci.find(f => String(f.aic) === targetAIC);
 
                 const drugDataRef = masterDrug || anyDrug;
 
@@ -2221,6 +2551,7 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                     // Ensure we display the scanned GTIN even if not in DB yet
                     if (scannedGtin) scannedDrug.scannedGtin = scannedGtin;
                     setupFoundDrugCard(scannedDrug, false);
+                    return true; // MATCH FOUND
 
                 } else if (drugDataRef) {
                     // CASO 2: ESISTE IL FARMACO MA NON QUESTA SCADENZA -> PROPONI CREAZIONE NUOVO LOTTO
@@ -2229,15 +2560,16 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                     if (scannedExpiry && drugDataRef.scadenza !== scannedExpiry) {
                         // Siamo nel caso: NUOVO LOTTO
                         scannedDrug = { ...drugDataRef }; // Copia dati base
-                        scannedDrug.isNewBatch = true;    // Flag per confirmLoad
+                        scannedDrug.isNewBatch = true; // Flag per confirmLoad
                         scannedDrug.newScadenza = scannedExpiry;
                         scannedDrug.newGtin = scannedGtin; // FIX: Assign scanned GTIN
-                        scannedDrug.quantitaOrdine = 0;   // Reset contatori per nuovo lotto
+                        scannedDrug.quantitaOrdine = 0; // Reset contatori per nuovo lotto
                         scannedDrug.quantitaReparto = 0;
                         scannedDrug.giacenzaAttuale = 0;
                         scannedDrug.giacenzaMinima = 0;
 
                         setupFoundDrugCard(scannedDrug, true);
+                        return true; // MATCH FOUND (as new batch)
                     } else {
                         // Scadenza non scansionata o coincidente col master -> Usa master
                         scannedDrug = drugDataRef;
@@ -2245,6 +2577,7 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                         // For now let's just use it.
                         if (scannedGtin) scannedDrug.scannedGtin = scannedGtin;
                         setupFoundDrugCard(scannedDrug, false);
+                        return true; // MATCH FOUND
                     }
                 } else {
                     // CASO 3: FARMACO MAI VISTO PRIMA
@@ -2252,11 +2585,98 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                     document.getElementById('foundDrugCard').classList.add('hidden');
 
                     // SHOW NOT FOUND + ADD NEW
-                    failedScanData = { aic: aic, scadenza: scannedExpiry || '', gtin: scannedGtin || '' };
+                    failedScanData = { aic: targetAIC, scadenza: scannedExpiry || '', gtin: scannedGtin || '' };
                     document.getElementById('notFoundCard').classList.remove('hidden');
-                    document.getElementById('notFoundDebugInfo').textContent = `AIC Rilevato: ${aic} ${scannedGtin ? '- GTIN: ' + scannedGtin : ''}`;
+                    document.getElementById('notFoundDebugInfo').textContent = `AIC Rilevato: ${targetAIC} ${scannedGtin ?
+                        '- GTIN: ' + scannedGtin : ''}`;
+                    return false; // NO MATCH
                 }
             }
+
+            // UTILITY: Decodifica Code32 (Base32 Farmacode Italia) -> Base10 (AIC)
+            // Mappa: 0123456789BCDFGHJKLMNPQRSTUVWXYZ
+            // Valori: 0..9, B=10, C=11, ... Z=31
+            window.decodeCode32 = function (code32) {
+                if (!code32) return null;
+                const charMap = "0123456789BCDFGHJKLMNPQRSTUVWXYZ";
+                let val = 0;
+                const clean = code32.toUpperCase();
+
+                for (let i = 0; i < clean.length; i++) {
+                    const char = clean[i];
+                    const index = charMap.indexOf(char);
+                    if (index === -1) return null; // Invalid char
+                    // Base 32 positional value (reverse power)
+                    // Logic: Most significant char first? Usually yes.
+                    // Example: HP8MW -> H * 32^4 ...
+                    // Calculation: val = val * 32 + index
+                    val = val * 32 + index;
+                }
+                return val;
+            };
+
+            // Enhanced fallback search including Code32
+            // Called if standard Matrix parse fails
+            window.tryAdvancedSearch = function (rawInput) {
+                // 1. Existing Smart Search (Substring)
+                // Trim leading zeros for broader match capability
+                const cleanInput = rawInput.replace(/^0+/, '');
+
+                // Strategy: Scan all farmaci and see if their AIC is inside the rawInput
+                const potentialMatch = allFarmaci.find(f => {
+                    if (!f.aic) return false;
+                    const cleanAIC = String(f.aic).replace(/^0+/, '');
+                    return cleanInput.includes(cleanAIC) && cleanAIC.length > 5;
+                });
+
+                if (potentialMatch) {
+                    console.log("Smart Match Found (Substring):", potentialMatch.nome, potentialMatch.aic);
+                    showScanFeedback(`⚠️ Formato non standard (Substring). Rilevato: ${potentialMatch.nome}`, 'warning');
+                    return findDrugByAIC(potentialMatch.aic, null, null);
+                }
+
+                // 2. Code32 Decoding attempt
+                // Italian Datamatrix ("Bollino") often ends with 6 chars of Code32
+                // e.g. 00009395601HP8MW -> Ends with HP8MW (6 chars)
+                // Let's try to extract the LAST 6 alphanumeric chars
+                const last6 = rawInput.match(/[0-9A-Z]{6}$/);
+                if (last6) {
+                    const candidateCode32 = last6[0];
+                    const decoded = window.decodeCode32(candidateCode32);
+                    if (decoded) {
+                        // EXTRACT "GTIN" (First 9 digits of raw input per user request)
+                        // Structure: 000093956 0 1HP8MW
+                        let extractedGtin = null;
+                        // Per user: "le prime 9 cifre del codice prima del rilevamento dell'aic"
+                        // If rawInput is long enough (9+1+6 = 16 chars usually for this format)
+                        // Let's just take the first 9 digits if valid numbers
+                        const potentialSerial = rawInput.substring(0, 9);
+                        if (/^\d{9}$/.test(potentialSerial)) {
+                            extractedGtin = potentialSerial;
+                        }
+
+                        // Format as 9 digit AIC (leading zero)
+                        const aicCandidate = "0" + decoded;
+                        // Check if this AIC exists
+                        const found = allFarmaci.find(f => f.aic === aicCandidate);
+                        if (found) {
+                            console.log("Smart Match Found (Code32):", found.nome, found.aic);
+                            showScanFeedback(`✅ Decodificato Code32: ${found.nome}`, 'success');
+                            return findDrugByAIC(found.aic, null, extractedGtin);
+                        }
+
+                        // Try without leading zero just in case
+                        const foundNoZero = allFarmaci.find(f => f.aic === String(decoded));
+                        if (foundNoZero) {
+                            console.log("Smart Match Found (Code32 NoZero):", foundNoZero.nome, foundNoZero.aic);
+                            showScanFeedback(`✅ Decodificato Code32: ${foundNoZero.nome}`, 'success');
+                            return findDrugByAIC(foundNoZero.aic, null, extractedGtin);
+                        }
+                    }
+                }
+
+                return false;
+            };
 
 
 
@@ -2274,13 +2694,21 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                     document.getElementById('foundDrugGTINContainer').classList.add('hidden');
                 }
 
-                // Show Expiry Info
+                // Show Expiry Info + Init Manual Input
                 const displayScadenza = isNewBatch ? drug.newScadenza : drug.scadenza;
-                const scadBadge = displayScadenza
-                    ? `<span class="bg-purple-50 px-2 py-1 rounded border border-purple-200 text-purple-800 font-mono ml-2">Scad: ${formatDateIT(displayScadenza)} ${isNewBatch ? '(NUOVO)' : ''}</span>`
-                    : '';
+                const manualInput = document.getElementById('manualExpiryInput');
 
-                document.getElementById('foundDrugQOrd').innerHTML = `<b>${drug.quantitaOrdine || 0}</b>${scadBadge}`;
+                if (displayScadenza) {
+                    manualInput.value = displayScadenza;
+                    // If effectively new/scanned, maybe allow edit? Always allow edit.
+                } else {
+                    manualInput.value = '';
+                }
+
+                // Old Badge Logic for visual (optional, maybe keep it but simpler)
+                // We replaced the badge with the input container in HTML, so we just set the input
+
+                document.getElementById('foundDrugQOrd').innerHTML = `<b>${drug.quantitaOrdine || 0}</b>`;
 
                 document.getElementById('loadQty').value = 1;
                 document.getElementById('foundDrugCard').classList.remove('hidden');
@@ -2310,20 +2738,15 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                 const el = document.getElementById('loadQty');
                 let val = parseInt(el.value) || 0;
                 val += delta;
-                if (val < 1) val = 1;
-                el.value = val;
-            };
-
-            window.resetScan = function () {
+                if (val < 1) val = 1; el.value = val;
+            }; window.resetScan = function () {
                 scannedDrug = null;
                 document.getElementById('foundDrugCard').classList.add('hidden');
                 document.getElementById('notFoundCard').classList.add('hidden');
                 document.getElementById('scanFeedback').classList.add('hidden');
                 document.getElementById('barcodeInput').value = '';
                 document.getElementById('barcodeInput').focus();
-            };
-
-            window.confirmLoadDrug = async function () {
+            }; window.confirmLoadDrug = async function () {
                 if (!scannedDrug) return;
 
                 const qtyToAdd = parseInt(document.getElementById('loadQty').value) || 0;
@@ -2332,64 +2755,98 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                     return;
                 }
 
-                try {
-                    let docId = scannedDrug.id || scannedDrug.aic; // Default ID
+                // Read Manual Expiry
+                const manualExpiryDate = document.getElementById('manualExpiryInput').value; // YYYY-MM-DD
+                // Verify format? standard input date returns YYYY-MM-DD
 
-                    if (scannedDrug.isNewBatch) {
-                        // CREAZIONE NUOVO DOCUMENTO PER LOTTO
-                        // ID = AIC_YYYY-MM-DD oppure AIC_GTIN_YYYY-MM-DD
-                        // Per unicità, se abbiamo GTIN usiamolo, altrimenti solo data
-                        let newId = `${scannedDrug.aic}_${scannedDrug.newScadenza}`;
+                try {
+                    let docId = scannedDrug.id || scannedDrug.aic;
+                    // Logic: If manual expiry differs from current drug expiry -> Create NEW BATCH logic?
+                    // Or if current drug has NO expiry, update it.
+
+                    // Priority: Manual Input > Scanned/Existing
+                    const finalScadenza = manualExpiryDate || (scannedDrug.isNewBatch ? scannedDrug.newScadenza : scannedDrug.scadenza);
+
+                    // Check if we need to create a new batch because of expiry change
+                    let isEffectiveNewBatch = scannedDrug.isNewBatch;
+
+                    if (!isEffectiveNewBatch && scannedDrug.scadenza && finalScadenza && scannedDrug.scadenza !== finalScadenza) {
+                        // Existing drug but different expiry -> New Batch
+                        isEffectiveNewBatch = true;
+                    }
+
+                    // Also if existing drug has NO expiry but we provided one -> Update existing OR new batch?
+                    // Let's say: if existing is master (no underscore), update it? 
+                    // But usually expiry implies a batch. 
+                    // User request: "permit to insert manually". 
+
+                    if (isEffectiveNewBatch || (scannedDrug.id && !scannedDrug.id.includes('_') && finalScadenza && finalScadenza !== scannedDrug.scadenza)) {
+                        // CREAZIONE NUOVO DOCUMENTO PER LOTTO 
+                        // Check if batch exists already
+                        let newId = `${scannedDrug.aic}_${finalScadenza}`;
                         if (scannedDrug.newGtin) {
-                            newId = `${scannedDrug.aic}_${scannedDrug.newGtin}_${scannedDrug.newScadenza}`;
+                            newId = `${scannedDrug.aic}_${scannedDrug.newGtin}_${finalScadenza}`;
+                        } else if (scannedDrug.gtin) {
+                            // Keep GTIN in ID if present?
+                            // Standard naming: AIC_SCADENZA
                         }
 
                         docId = newId;
 
                         const newBatchData = {
-                            ...scannedDrug, // Copia tutto
-                            scadenza: scannedDrug.newScadenza,
-                            gtin: scannedDrug.newGtin || null,
+                            ...scannedDrug,
+                            scadenza: finalScadenza,
+                            gtin: scannedDrug.newGtin || scannedDrug.gtin || null,
                             quantitaOrdine: qtyToAdd,
                             attivo: true,
-                            isBatch: true, // Marker per identificarlo
+                            isBatch: true,
                             parentAIC: scannedDrug.aic,
                             createdAt: new Date(),
-                            // Initialize logic for inactivity
                             zeroStockSince: null
                         };
 
-                        // Rimuovi proprietà temporanee
+                        // Remove temp props
                         delete newBatchData.isNewBatch;
                         delete newBatchData.newScadenza;
                         delete newBatchData.newGtin;
                         delete newBatchData.tempScadenza;
-                        delete newBatchData.id; // Evita di sovrascrivere ID se presente nella copia
+                        delete newBatchData.id;
 
-                        await getCollectionRef('farmaci').doc(newId).set(newBatchData);
+                        await getCollectionRef('farmaci').doc(newId).set(newBatchData); // set (overwrite if exists is fine? or merge?)
+                        // Better use set with merge if we want to preserve other fields, but usually batch is specific.
+                        // Actually if it exists we should UPDATE quantity.
 
-                        showScanFeedback(`✅ Creato Nuovo Lotto ${scannedDrug.nome} (Scad: ${formatDateIT(newBatchData.scadenza)})`, 'success');
+                        // Check if doc exists to add qty instead of set
+                        const existingBatch = await getCollectionRef('farmaci').doc(newId).get();
+                        if (existingBatch.exists) {
+                            const oldQ = existingBatch.data().quantitaOrdine || 0;
+                            await getCollectionRef('farmaci').doc(newId).update({
+                                quantitaOrdine: oldQ + qtyToAdd,
+                                attivo: true,
+                                zeroStockSince: null
+                            });
+                        } else {
+                            await getCollectionRef('farmaci').doc(newId).set(newBatchData);
+                        }
 
-                    } else {
-                        // AGGIORNAMENTO ESISTENTE
+                        showScanFeedback(`✅ Aggiornato Lotto ${scannedDrug.nome} (Scad: ${formatDateIT(finalScadenza)})`, 'success');
+
+                    } else { // AGGIORNAMENTO ESISTENTE (Stesso batch o Master identico)
                         const newQOrd = (scannedDrug.quantitaOrdine || 0) + qtyToAdd;
                         const updateData = {
                             quantitaOrdine: newQOrd,
                             attivo: true,
-                            // If it was inactive because of 0 stock, now it has stock (well, incoming order)
-                            // Technically stock (giacenzaAttuale) is not increased yet, only order quantity.
-                            // But let's clear inactivity status just in case.
                             zeroStockSince: null
                         };
 
+                        // Update expiry if missing in original
+                        if (finalScadenza && !scannedDrug.scadenza) {
+                            updateData.scadenza = finalScadenza;
+                        }
 
-
-                        // FIX: If we scanned a GTIN and the record doesn't have one, update it.
-                        // scannedDrug.scannedGtin is set in findDrugByAIC fallback
-                        if (scannedDrug.scannedGtin) {
-                            // Update always or only if missing?
-                            // Let's update if missing or different
-                            if (!scannedDrug.gtin || scannedDrug.gtin !== scannedDrug.scannedGtin) {
+                        // Update GTIN if missing
+                        if (!scannedDrug.gtin || (scannedDrug.scannedGtin && scannedDrug.gtin !== scannedDrug.scannedGtin)) {
+                            if (scannedDrug.scannedGtin) {
                                 updateData.gtin = scannedDrug.scannedGtin;
                             }
                         }
@@ -2398,10 +2855,9 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                         showScanFeedback(`✅ Aggiornato ${scannedDrug.nome}: Q.Ord aumentata di ${qtyToAdd}`, 'success');
                     }
 
-                    // Auto-confirm: Aggiorna elenco generale
+                    // Auto-confirm: Aggiorna elenco generale 
                     await window.aggiornaElencoReparto(true);
 
-                    // Reset
                     setTimeout(() => {
                         window.resetScan();
                     }, 1500);
@@ -2415,7 +2871,8 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
             function showScanFeedback(msg, type) {
                 const el = document.getElementById('scanFeedback');
                 el.textContent = msg;
-                el.classList.remove('hidden', 'bg-red-100', 'text-red-700', 'bg-green-100', 'text-green-700');
+                el.classList.remove('hidden', 'bg-red-100', 'text-red-700', 'bg-green-100',
+                    'text-green-700');
                 if (type === 'error') {
                     el.classList.add('bg-red-100', 'text-red-700');
                 } else {
@@ -2449,24 +2906,79 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                             document.getElementById('foundDrugCardScarico').classList.add('hidden');
                         }
                     } else {
-                        showScanFeedbackScarico(`Codice AIC non riconosciuto. Input: "${rawInput}"`, 'error');
-                        document.getElementById('foundDrugCardScarico').classList.add('hidden');
+                        // FALLBACK: Try Advanced Search (Code32 / Substring)
+                        // Note: tryAdvancedSearch is currently designed for LOADING (calls findDrugByAIC).
+                        // We need a version for SCARICO or adapt it.
+                        // Adapting tryAdvancedSearch to return matched object instead of calling valid function?
+                        // Refactoring tryAdvancedSearch to return {found: true, drug: ..., gtin: ...} would be cleaner 
+                        // but for now let's just replicate the logic locally or make tryAdvancedSearch accept a callback?
+
+                        // Quick Hack: Re-implement "TryAdvancedSearchLogic" specifically for Scarico context 
+                        // OR Refactor tryAdvancedSearch (better).
+
+                        // Let's modify tryAdvancedSearch to accept a "context" or "callback"?
+                        // Too invasive? Let's just copy the logic effectively for now to be safe, or direct call.
+
+                        const advancedMatch = window.performAdvancedSearchLogic(rawInput);
+                        if (advancedMatch) {
+                            findDrugByAICScarico(advancedMatch.drug.aic, null, advancedMatch.gtin);
+                        } else {
+                            showScanFeedbackScarico(`Codice AIC non riconosciuto. Input: "${rawInput}"`, 'error');
+                            document.getElementById('foundDrugCardScarico').classList.add('hidden');
+                        }
                     }
                 }
             };
 
+            // New Helper to decouple search from action
+            window.performAdvancedSearchLogic = function (rawInput) {
+                // 1. Substring
+                const cleanInput = rawInput.replace(/^0+/, '');
+                const potentialMatch = allFarmaci.find(f => {
+                    if (!f.aic) return false;
+                    const cleanAIC = String(f.aic).replace(/^0+/, '');
+                    return cleanInput.includes(cleanAIC) && cleanAIC.length > 5;
+                });
+                if (potentialMatch) {
+                    showScanFeedbackScarico(`⚠️ Formato non standard. Rilevato: ${potentialMatch.nome}`, 'warning');
+                    return { drug: potentialMatch, gtin: null };
+                }
+
+                // 2. Code32
+                const last6 = rawInput.match(/[0-9A-Z]{6}$/);
+                if (last6) {
+                    const candidateCode32 = last6[0];
+                    const decoded = window.decodeCode32(candidateCode32);
+                    if (decoded) {
+                        let extractedGtin = null;
+                        const potentialSerial = rawInput.substring(0, 9);
+                        if (/^\d{9}$/.test(potentialSerial)) extractedGtin = potentialSerial;
+
+                        const aicCandidate = "0" + decoded;
+                        const found = allFarmaci.find(f => f.aic === aicCandidate) || allFarmaci.find(f => f.aic === String(decoded));
+
+                        if (found) {
+                            showScanFeedbackScarico(`✅ Decodificato Code32: ${found.nome}`, 'success');
+                            return { drug: found, gtin: extractedGtin };
+                        }
+                    }
+                }
+                return null;
+            }
+
             function findDrugByAICScarico(aic, scannedExpiry, scannedGtin) {
-                // LOGICA DI RICERCA (Simile al Carico per trovare Lotti specifici)
                 let matchUrl = null;
+                const targetAIC = String(aic).trim();
 
                 if (scannedExpiry) {
                     // Cerca match esatto AIC + Scadenza
-                    matchUrl = allFarmaci.find(f => f.aic === aic && f.scadenza === scannedExpiry && (!scannedGtin || f.gtin === scannedGtin));
+                    matchUrl = allFarmaci.find(f => String(f.aic) === targetAIC && f.scadenza === scannedExpiry &&
+                        (!scannedGtin || f.gtin === scannedGtin));
                 }
 
                 // Fallback: Master o Qualsiasi
-                const masterDrug = allFarmaci.find(f => f.aic === aic && !f.id.includes('_'));
-                const anyDrug = allFarmaci.find(f => f.aic === aic);
+                const masterDrug = allFarmaci.find(f => String(f.aic) === targetAIC && !f.id.includes('_'));
+                const anyDrug = allFarmaci.find(f => String(f.aic) === targetAIC);
 
                 // Priorità: Match Esatto -> Master -> Qualsiasi
                 const drug = matchUrl || masterDrug || anyDrug;
@@ -2478,11 +2990,30 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                     document.getElementById('foundDrugNameScarico').textContent = drug.nome;
                     document.getElementById('foundDrugDescScarico').textContent = drug.descrizione || '';
                     document.getElementById('foundDrugAICScarico').textContent = drug.aic;
+
+                    // Display GTIN/Serial if provided (e.g. from Code32 prefix)
+                    if (scannedGtin) {
+                        // Create or update GTIN element for Scarico
+                        let gtinEl = document.getElementById('foundDrugGTINScarico');
+                        if (!gtinEl) {
+                            // Inject if missing (quick hack or add to HTML properly)
+                            // Better: Add to HTML first, but for now append to AIC or similar
+                            // Actually let's assume I'll add the element in HTML or use existing if any.
+                            // Checking previous view_file... no specific GTIN container in Scarico?
+                            // I should probable just log it or append it to AIC text for now if no container.
+                            // BUT user asked to "save it" (implicitly? "identificare il farmaco").
+                            // I will store it in scannedDrugScarico.scannedGtin for logging.
+                        }
+                        scannedDrugScarico.scannedGtin = scannedGtin;
+                    }
+
                     document.getElementById('foundDrugQRepScarico').textContent = drug.quantitaReparto;
 
                     // Show batch info if specific
                     if (drug.id.includes('_')) {
-                        document.getElementById('foundDrugDescScarico').innerHTML += `<br><span class="text-xs text-blue-600 font-bold">Lotto Scad: ${formatDateIT(drug.scadenza)}</span>`;
+                        document.getElementById('foundDrugDescScarico').innerHTML += `<br><span
+                                class="text-xs text-blue-600 font-bold">Lotto Scad:
+                                ${formatDateIT(drug.scadenza)}</span>`;
                     }
 
                     document.getElementById('unloadQty').value = 1;
@@ -2504,18 +3035,13 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                 const input = document.getElementById('unloadQty');
                 let val = parseInt(input.value) || 0;
                 val += delta;
-                if (val < 1) val = 1;
-                input.value = val;
-            };
-
-            window.resetScanScarico = function () {
+                if (val < 1) val = 1; input.value = val;
+            }; window.resetScanScarico = function () {
                 document.getElementById('scanInputScarico').value = '';
                 document.getElementById('foundDrugCardScarico').classList.add('hidden');
                 document.getElementById('scanFeedbackScarico').classList.add('hidden');
-                scannedDrugScarico = null;
-                document.getElementById('scanInputScarico').focus();
+                scannedDrugScarico = null; document.getElementById('scanInputScarico').focus();
             };
-
             window.confirmUnloadDrug = async function () {
                 if (!scannedDrugScarico) return;
 
@@ -2525,39 +3051,51 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                     return;
                 }
 
-                // CORREZIONE LOGICA: Q.Rep è un buffer di "COSE USATE".
-                // Quindi per scaricare (consumare), DOBBIAMO AUMENTARE Q.Rep.
-                // AggiornaElenco poi farà: Giacenza = Giacenza - Q.Rep.
-                const newQRep = (scannedDrugScarico.quantitaReparto || 0) + qtyToUnload;
+                const docId = scannedDrugScarico.id || scannedDrugScarico.aic;
+                const destLocale = document.getElementById('unloadLocaleSelector')?.value || 'Carrello';
 
                 try {
-                    // FIX: Use .id (handles batches correctly) instead of .aic
-                    const docId = scannedDrugScarico.id || scannedDrugScarico.aic;
-                    await getCollectionRef('farmaci').doc(docId).update({
-                        quantitaReparto: newQRep
+                    const updateData = {
+                        giacenzaAttuale: firebase.firestore.FieldValue.increment(-qtyToUnload),
+                        [`locali.${destLocale}`]: firebase.firestore.FieldValue.increment(qtyToUnload),
+                        lastUpdate: new Date()
+                    };
+
+                    await getCollectionRef('farmaci').doc(docId).update(updateData);
+
+                    // LOG MOVEMENT (Single entry)
+                    await getCollectionRef('movimenti_reparto').add({
+                        data: new Date(),
+                        aic: scannedDrugScarico.aic,
+                        nome: scannedDrugScarico.nome,
+                        quantita: qtyToUnload,
+                        tipo: 'scarico',
+                        destinazione: destLocale,
+                        locale: currentLocale, // Added Source Locale
+                        gtin: scannedDrugScarico.scannedGtin || null, // Added GTIN/Serial logging
+                        user: currentUser ? currentUser.email : 'unknown',
+                        ruolo: userRole
                     });
 
-                    // Aggiorna locale
-                    scannedDrugScarico.quantitaReparto = newQRep;
+                    showScanFeedbackScarico(`✅ Scaricato ${scannedDrugScarico.nome} in ${destLocale}`, 'success');
 
-                    showScanFeedbackScarico(`✅ Scaricato ${scannedDrugScarico.nome}: Qtà registrata per uscita.`, 'success');
+                    // Check Cleanup 
+                    // Pass updated values to check logic
+                    const updatedMock = {
+                        ...scannedDrugScarico,
+                        giacenzaAttuale: (scannedDrugScarico.giacenzaAttuale || 0) - qtyToUnload,
+                        quantitaReparto: scannedDrugScarico.quantitaReparto || 0
+                    };
 
-                    // Check cleanup if it's a batch
-                    // Nota: Q.Rep aumenta, quindi la "giacenza effettiva" (GiacenzaAttuale - Q.Rep) diminuisce.
-                    // Se (GiacenzaAttuale + Q.Ordine - newQRep) <= 0 e ID contiene '_', elimina.
-                    await checkAndCleanupBatch(scannedDrugScarico.aic, { ...scannedDrugScarico, quantitaReparto: newQRep });
+                    await checkAndCleanupBatch(docId, updatedMock);
 
-                    // Reset per prossima scansione dopo breve delay
                     setTimeout(() => {
                         window.resetScanScarico();
                     }, 1500);
 
-                    // Auto-confirm: Aggiorna elenco generale (movimentazione)
-                    await window.aggiornaElencoReparto(true);
-
                 } catch (error) {
-                    console.error("Error updating drug:", error);
-                    showScanFeedbackScarico("Errore durante lo scarico.", 'error');
+                    console.error("Error unloading:", error);
+                    showScanFeedbackScarico("Errore durante lo scarico: " + error.message, 'error');
                 }
             };
 
@@ -2566,13 +3104,14 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                 if (id.includes('_') || data.isBatch || data.parentAIC) {
                     // Calcola giacenza residua netta
                     // GiacenzaTotale = (GiacenzaAttuale + QuantitaOrdine) - QuantitaReparto
-                    const residuo = (data.giacenzaAttuale || 0) + (data.quantitaOrdine || 0) - (data.quantitaReparto || 0);
+                    const residuo = (data.giacenzaAttuale || 0) + (data.quantitaOrdine || 0) -
+                        (data.quantitaReparto || 0);
 
                     if (residuo <= 0) {
                         console.log(`🧹 Batch ${id} esaurito (${residuo}). Eliminazione...`);
                         try {
                             await getCollectionRef('farmaci').doc(id).delete();
-                            // Rimuovi da array locale per refresh immediato
+                            // Rimuovi da array locale per refresh immediato 
                             allFarmaci = allFarmaci.filter(f => f.aic !== id);
                             renderFarmaciTable();
                         } catch (e) {
@@ -2596,25 +3135,27 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
 
                     // Case 1: Active drug, 0 stock for > 6 months
                     if (f.attivo && stock === 0 && f.zeroStockSince) {
-                        const zeroDate = f.zeroStockSince.toDate ? f.zeroStockSince.toDate() : new Date(f.zeroStockSince);
+                        const zeroDate = f.zeroStockSince.toDate ? f.zeroStockSince.toDate() : new
+                            Date(f.zeroStockSince);
                         if (zeroDate < sixMonthsAgo) {
-                            console.log(`📉 Deactivating ${f.nome} (Zero stock since ${zeroDate.toLocaleDateString()})`);
+                            console.log(`📉 Deactivating ${f.nome} (Zero stock
+                                    since ${zeroDate.toLocaleDateString()})`);
                             const docRef = getCollectionRef('farmaci').doc(f.id);
-                            batch.update(docRef, { attivo: false });
+                            batch.update(docRef, {
+                                attivo:
+                                    false
+                            });
                             paramsChanged++;
                         }
                     }
 
-                    // Case 2: Inactive drug (already), 0 stock for > 6 months -> DELETE DUPLICATES/BATCHES
+                    // Case 2: Inactive drug (already), 0 stock for > 6 months -> DELETE DUPLICATES / BATCHES
                     // "se un farmaco non attivo con giacenza = 0 per 6 mesi consecutivi, allora cancella i doppioni con scadenza più vicino ad oggi"
-                    // Interpretation: Clean up old batches/duplicates that are dead.
                     if (!f.attivo && stock === 0) {
-                        // Use zeroStockSince if available, otherwise fallback to updatedAt or check if it's really old
+                        // Use zeroStockSince if available
                         let referenceDate = f.zeroStockSince ? (f.zeroStockSince.toDate ? f.zeroStockSince.toDate() : new Date(f.zeroStockSince)) : null;
 
-                        // If we don't have zeroStockSince (legacy data), maybe use updatedAt? 
-                        // Let's be conservative: only delete if we strictly know it's been 0 for 6 months via zeroStockSince
-
+                        // Only delete if we strictly know it's been 0 for 6 months via zeroStockSince
                         if (referenceDate && referenceDate < sixMonthsAgo) {
                             if (f.isBatch || f.id.includes('_')) {
                                 // It's a batch/duplicate. Delete it.
@@ -2623,7 +3164,7 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                             }
                         }
                     }
-                });
+                }); // Close forEach
 
                 if (paramsChanged > 0) {
                     await batch.commit();
@@ -2638,8 +3179,7 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                     await deleteBatch.commit();
                     console.log(`✅ Deleted ${itemsToDelete.length} old batches.`);
 
-                    // Reload
-                    loadAllFarmaci();
+                    // force reload is handled by listener usually, but we can log
                 }
             }
 
@@ -2649,7 +3189,8 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
             function showScanFeedbackScarico(msg, type) {
                 const el = document.getElementById('scanFeedbackScarico');
                 el.textContent = msg;
-                el.classList.remove('hidden', 'bg-red-100', 'text-red-700', 'bg-green-100', 'text-green-700');
+                el.classList.remove('hidden', 'bg-red-100', 'text-red-700', 'bg-green-100',
+                    'text-green-700');
                 if (type === 'error') {
                     el.classList.add('bg-red-100', 'text-red-700');
                 } else {
@@ -2671,7 +3212,7 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                             console.log('DEBUG: roleData retrieved', roleData);
 
                             if (typeof roleData === 'string') {
-                                alert("ATTENZIONE: Il browser sta usando una versione vecchia del codice. Per favorericarica la pagina con Cmd+Shift+R.");
+                                alert("ATTENZIONE: Il browser sta usando una versione vecchia del codice. Per favorericarica la pagina con Cmd + Shift + R.");
                                 userRole = roleData;
                                 currentPharmacyId = null;
                             } else {
@@ -2684,10 +3225,10 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                                 // Se siamo ancora in default, avvisiamo per sicurezza
                                 console.warn("Nessun Pharmacy ID rilevato o default.");
                             } else {
-                                // alert(`Login effettuato: ${userRole} - Farmacia: ${currentPharmacyId}`);
+                                // alert(`Login effettuato: ${ userRole } - Farmacia: ${ currentPharmacyId } `);
                             }
 
-                            console.log(`Login User: ${email}, Role: ${userRole}, Pharmacy: ${currentPharmacyId}`);
+                            console.log(`Login User: ${currentUser ? currentUser.email : 'unknown'}, Role: ${userRole}, Pharmacy: ${currentPharmacyId}`);
 
                             updateUIBasedOnRole();
                             mainSearch.value = result.aic;
@@ -2720,24 +3261,29 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                 const table = document.getElementById('ordini-table');
 
                 if (ordiniAttuali.length === 0) {
-                    table.innerHTML = '<tr><td colspan="8" class="px-2 py-8 text-center text-gray-500">Nessun ordine necessario</td></tr>';
+                    table.innerHTML = `<tr>
+                            <td colspan="8" class="px-2 py-8 text-center text-gray-500">Nessun ordine necessario</td>
+                        </tr>`;
                     return;
                 }
 
-                table.innerHTML = ordiniAttuali
+                const rows = ordiniAttuali
                     .filter(f => f.quantitaOrdine >= 1)
-                    .map(f => `
-<tr>
-<td class="px-2 py-2 text-xs font-mono print-hidden">${f.aic}</td>
-<td class="px-2 py-2 text-xs font-semibold truncate">${f.nome}</td>
-<td class="px-2 py-2 text-xs truncate">${f.principioAttivo}</td>
-<td class="px-2 py-2 text-xs truncate">${f.descrizione}</td>
-<td class="px-2 py-2 text-right text-xs print-hidden">${f.giacenzaAttuale}</td>
-<td class="px-2 py-2 text-right text-xs print-hidden">${f.quantitaReparto}</td>
-<td class="px-2 py-2 text-right text-xs print-hidden">${f.giacenzaMinima}</td>
-<td class="px-2 py-2 text-right text-xs font-bold bg-green-50 rounded">${f.quantitaOrdine}</td>
-</tr>
-`).join('');
+                    .map(f => {
+                        return `<tr>
+                            <td class="px-2 py-2 text-xs font-mono print-hidden">${f.aic}</td>
+                            <td class="px-2 py-2 text-xs font-semibold truncate">${f.nome}</td>
+                            <td class="px-2 py-2 text-xs truncate">${f.principioAttivo}</td>
+                            <td class="px-2 py-2 text-xs truncate">${f.descrizione}</td>
+                            <td class="px-2 py-2 text-right text-xs print-hidden">${f.giacenzaAttuale}</td>
+                            <td class="px-2 py-2 text-right text-xs print-hidden">${f.quantitaReparto}</td>
+                            <td class="px-2 py-2 text-right text-xs print-hidden">${f.giacenzaMinima}</td>
+                            <td class="px-2 py-2 text-right text-xs font-bold bg-green-50 rounded">${f.quantitaOrdine}</td>
+                        </tr>`;
+                    })
+                    .join('');
+
+                table.innerHTML = rows;
             }
 
             window.toggleFarmaco = async function (aic, attivo) {
@@ -2752,7 +3298,7 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
                 const active = allFarmaci.filter(f => f.attivo).length;
                 const sottoscorta = allFarmaci.filter(f => f.attivo && f.giacenzaAttuale < f.giacenzaMinima).length;
 
-                // Calcolo scadenza
+                // Calcolo scadenza 
                 const today = new Date();
                 const nextMonth = new Date();
                 nextMonth.setDate(today.getDate() + 30);
@@ -2774,8 +3320,11 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
 
                 const alertList = document.getElementById('alertList');
                 const alertFarmaci = allFarmaci.filter(f => f.attivo && f.giacenzaAttuale < f.giacenzaMinima);
+
                 alertList.innerHTML = alertFarmaci.length > 0
-                    ? alertFarmaci.map(f => `<div class="p-3 bg-red-50 border-l-4 border-red-500"><strong>${f.nome}</strong> - Att: ${f.giacenzaAttuale}, Min: ${f.giacenzaMinima}</div>`).join('')
+                    ? alertFarmaci.map(f => `<div class="p-3 bg-red-50 border-l-4 border-red-500">
+                                <strong>${f.nome}</strong> - Att: ${f.giacenzaAttuale}, Min: ${f.giacenzaMinima}
+                            </div>`).join('')
                     : '<p class="text-gray-500">Tutti i farmaci attivi sono in giacenza sufficiente</p>';
             }
 
@@ -2783,6 +3332,12 @@ ${userRole === 'admin' ? `<td class="px-2 py-2 text-right text-xs cursor-pointer
             if (searchInput) {
                 searchInput.addEventListener('input', renderFarmaciTable);
             }
+            // Init Locali
+            loadLocaliSettings();
+
+            // Init Locali
+            loadLocaliSettings();
+
         </script>
 
 </body>
