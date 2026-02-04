@@ -90,6 +90,10 @@
     <nav class="navbar bg-white shadow-md sticky top-0 z-40">
         <div class="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
             <div class="flex items-center gap-3">
+                <div class="flex items-center gap-3 mr-6 border-r pr-6 border-gray-200">
+                    <img src="IMG_7226.jpg" class="h-8 w-8 rounded object-cover" alt="Qualicare">
+                    <span class="text-xl font-bold text-gray-800">Qualicare</span>
+                </div>
                 <div
                     class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white font-bold">
                     💊</div>
@@ -163,7 +167,31 @@
         <div class="flex-1 overflow-hidden flex flex-col justify-start items-stretch">
             <!-- LOGIN SCREEN -->
             <div id="loginScreen"
-                class="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50">
+                class="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50 relative">
+                <!-- Branding Top-Left with Gospel Toggle -->
+                <div class="absolute top-6 left-6 flex flex-col items-start gap-4 z-50">
+                    <div class="flex items-center gap-3 cursor-pointer hover:opacity-80 transition select-none"
+                        onclick="window.toggleGospel()" title="Clicca per leggere il Vangelo">
+                        <img src="IMG_7226.jpg" class="h-12 w-12 rounded-lg shadow-md object-cover"
+                            alt="Qualicare Logo">
+                        <span class="text-2xl font-bold text-gray-800 tracking-tight">Qualicare</span>
+                    </div>
+
+                    <!-- Gospel Container (Hidden by default) -->
+                    <div id="gospelContainerWrapper" class="hidden transition-all duration-300 origin-top-left">
+                        <div
+                            class="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl p-6 border border-white/50 w-[450px] max-h-[80vh] overflow-y-auto text-left">
+                            <h3 class="text-lg font-bold text-gray-800 mb-3 flex items-center gap-2 border-b pb-2">
+                                📖 Vangelo del Giorno
+                            </h3>
+                            <div id="gospelContainer" class="text-sm text-gray-700 leading-relaxed">
+                                <div class="flex justify-center py-4">
+                                    <div class="loader w-6 h-6 border-2"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4">
                     <div class="text-center mb-8">
                         <div
@@ -193,7 +221,56 @@
 
                     <div id="loginError" class="mt-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm hidden"></div>
                 </div>
+
+                <!-- (Removed Gospel from bottom) -->
             </div>
+
+            <script>
+                document.addEventListener('DOMContentLoaded', () => {
+                    fetchDailyGospel();
+                });
+
+                function toggleGospel() {
+                    const wrapper = document.getElementById('gospelContainerWrapper');
+                    if (wrapper.classList.contains('hidden')) {
+                        wrapper.classList.remove('hidden');
+                        wrapper.classList.add('animate-fade-in-down'); // Simple animation class if available, or just block
+                    } else {
+                        wrapper.classList.add('hidden');
+                    }
+                }
+
+                async function fetchDailyGospel() {
+                    const gospelContainer = document.getElementById('gospelContainer');
+                    try {
+                        const today = new Date().toISOString().split('T')[0];
+                        const response = await fetch(`https://evangelium.manuelsanchez.dev/api/it/days/${today}`);
+
+                        if (!response.ok) throw new Error('Errore nel recupero del Vangelo');
+
+                        const data = await response.json();
+                        const gospel = data.gospel;
+
+                        // Clean text from custom markup like [[Mc 5,21]]
+                        const cleanText = gospel.text.replace(/\[\[.*?\]\]/g, '').trim();
+                        // Format paragraphs
+                        const formattedText = cleanText.split('\n').map(p => `<p class="mb-2">${p}</p>`).join('');
+
+                        gospelContainer.innerHTML = `
+                            <div class="mb-3">
+                                <p class="text-xs font-bold text-purple-600 uppercase tracking-widest mb-1">${gospel.title}</p>
+                                <p class="text-xs text-gray-500">${gospel.reference_displayed}</p>
+                            </div>
+                            <div class="prose prose-sm text-gray-700">
+                                ${formattedText}
+                            </div>
+                        `;
+                    } catch (error) {
+                        console.error('Errore Vangelo:', error);
+                        gospelContainer.innerHTML = '<p class="text-red-500 italic">Impossibile caricare il Vangelo di oggi.</p>';
+                    }
+                }
+            </script>
 
             <!-- APP SCREEN -->
             <div id="appScreen" class="hidden h-full w-full block overflow-y-auto bg-gray-50">
@@ -475,15 +552,8 @@
                                 <p class="text-sm opacity-90 mb-2">Farmaci Attivi</p>
                                 <p class="text-4xl font-bold" id="stat-active">0</p>
                             </div>
-                            <div class="bg-gradient-to-br from-red-500 to-red-600 text-white rounded-lg p-6 shadow-lg">
-                                <p class="text-sm opacity-90 mb-2">In Allerta</p>
-                                <p class="text-4xl font-bold" id="stat-alert">0</p>
-                            </div>
-                            <div
-                                class="bg-gradient-to-br from-green-500 to-green-600 text-white rounded-lg p-6 shadow-lg">
-                                <p class="text-sm opacity-90 mb-2">Valore Ordini €</p>
-                                <p class="text-4xl font-bold" id="stat-total">€ 0,00</p>
-                            </div>
+                            <div class="hidden"></div>
+                            <div class="hidden"></div>
                             <div
                                 class="bg-gradient-to-br from-purple-500 to-purple-600 text-white rounded-lg p-6 shadow-lg">
                                 <p class="text-sm opacity-90 mb-2">Tot. Farmaci DB</p>
@@ -3943,6 +4013,26 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     const currentData = docSnap.data();
                     const currentLocali = currentData.locali || {};
 
+                    // BLOCKING CHECK: Verify Stock > 0 in Source
+                    let sourceStock = 0;
+                    if (sourceLocale === 'Magazzino Farmacia') {
+                        sourceStock = Number(currentData.giacenzaAttuale || 0);
+                    } else {
+                        sourceStock = Number(currentLocali[sourceLocale] || 0);
+                    }
+
+                    if (sourceStock <= 0) {
+                        alert(`Impossibile scaricare: La giacenza in ${sourceLocale} è esausta (0).`);
+                        isProcessingUnload = false;
+                        return;
+                    }
+
+                    if (qtyToUnload > sourceStock) {
+                        alert(`Impossibile scaricare: Quantità richiesta (${qtyToUnload}) superiore alla giacenza disponibile (${sourceStock}).`);
+                        isProcessingUnload = false;
+                        return;
+                    }
+
                     // 1. PREPARE UPDATE - Use Nested Objects for SET + MERGE
                     // Dot notation (e.g. 'locali.Roma') works for update(), but set() treats it as a literal key "locali.Roma".
                     // We must use proper nesting: { locali: { Roma: val } }
@@ -4287,24 +4377,38 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     if (!productMap[masterId]) {
                         // Initialize with Master Data
                         // Find "Master Drug" object for metadata
-                        const masterDrug = (f.id === masterId) ? f : (allFarmaci.find(d => d.id === masterId) || f);
+                        // ROBUST FIX: Only trust "Master" if it actually has data. 
+                        // Sometimes "Master" is a Skeleton created by Min-Setting (only has locali_minimi).
+                        // If Master is skeleton, use 'f' (current batch) as source of truth for Name/Principle.
 
-                        // Resolve Minimum for Current Locale
-                        let effectiveMin = masterDrug.giacenzaMinima || 0;
+                        // ROBUST FIX: Split "Logic Source" (Minima) from "Metadata Source" (Names)
+                        // 1. Logic Source: Always prefer the abstract "Master" (ID=AIC) even if it's a skeleton.
+                        let logicSource = (f.id === masterId) ? f : (allFarmaci.find(d => d.id === masterId) || f);
+
+                        // 2. Metadata Source: Needs to have a Name.
+                        let metadataSource = logicSource;
+                        if (!metadataSource.nome) {
+                            // Search for ANY batch with same AIC that has a name.
+                            const validSibling = allFarmaci.find(d => (d.aic === masterId || d.parentAIC === masterId) && d.nome);
+                            if (validSibling) metadataSource = validSibling;
+                        }
+
+                        // Resolve Minimum for Current Locale (Use LOGIC SOURCE)
+                        let effectiveMin = logicSource.giacenzaMinima || 0;
                         if (currentLocale !== 'Magazzino Farmacia') {
-                            effectiveMin = (masterDrug.locali_minimi && masterDrug.locali_minimi[currentLocale]) ? Number(masterDrug.locali_minimi[currentLocale]) : 0;
+                            effectiveMin = (logicSource.locali_minimi && logicSource.locali_minimi[currentLocale]) ? Number(logicSource.locali_minimi[currentLocale]) : 0;
                         }
 
                         productMap[masterId] = {
                             aic: masterId,
-                            nome: masterDrug.nome,
-                            principioAttivo: masterDrug.principioAttivo,
-                            descrizione: masterDrug.descrizione,
-                            ditta: masterDrug.ditta,
+                            nome: metadataSource.nome || 'Nome mancante', // Fallback
+                            principioAttivo: metadataSource.principioAttivo || '',
+                            descrizione: metadataSource.descrizione || '',
+                            ditta: metadataSource.ditta || '',
                             min: effectiveMin,
                             currentStock: 0,
                             // Keep reference to object for extra fields
-                            original: masterDrug
+                            original: metadataSource
                         };
                     }
 
@@ -4431,10 +4535,8 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     .reduce((sum, f) => sum + (f.valoreAcquisto * f.quantitaOrdine), 0);
 
                 document.getElementById('stat-active').textContent = active;
-                // document.getElementById('stat-alert').innerHTML = `${sottoscorta} <span class="text-sm font-normal text-yellow-200">(${expiringCount} scad.)</span>`;
-                document.getElementById('stat-alert').innerHTML = `${expiringCount} <span class="text-sm font-normal text-yellow-200">(in scadenza)</span>`;
-
-                document.getElementById('stat-total').textContent = `€ ${totalValue.toFixed(2)}`;
+                // document.getElementById('stat-alert').innerHTML = ...; // REMOVED
+                // document.getElementById('stat-total').textContent = ...; // REMOVED
                 document.getElementById('stat-total-drugs').textContent = allFarmaci.length; // Total Batches/Docs
 
                 // AlertList removed from DOM
