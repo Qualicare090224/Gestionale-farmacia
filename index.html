@@ -7,11 +7,13 @@
     <title>Gestionale Farmaci - Admin</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
     <!-- FIREBASE SDK - VERSIONE COMPAT -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-functions-compat.js"></script>
 
     <style>
         body {
@@ -97,7 +99,7 @@
                 <div
                     class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white font-bold">
                     💊</div>
-                <h1 class="text-2xl font-bold text-gray-800">Gestionale Farmaci <span id="pharmacyNameDisplay"
+                <h1 class="text-2xl font-bold text-gray-800">Stock Management <span id="pharmacyNameDisplay"
                         class="text-blue-600 ml-2 text-lg font-normal"></span></h1>
             </div>
             <div class="flex items-center gap-4">
@@ -156,6 +158,21 @@
                     class="nav-btn w-full text-left px-4 py-3 rounded-lg hover:bg-white hover:bg-opacity-20 transition font-medium">
                     📤 Scarico
                 </button>
+                <button onclick="window.showTab('bolle')"
+                    class="nav-btn w-full text-left px-4 py-3 rounded-lg hover:bg-white hover:bg-opacity-20 transition font-medium admin-only"
+                    style="display:none;">
+                    🧾 Carico da Bolla
+                </button>
+                <button onclick="window.showTab('scarico-ordine'); window.populateOrdineLocales();"
+                    class="nav-btn w-full text-left px-4 py-3 rounded-lg hover:bg-white hover:bg-opacity-20 transition font-medium admin-only"
+                    style="display:none;">
+                    📉 Scarico da Ordine
+                </button>
+                <button onclick="window.showTab('superadmin')"
+                    class="nav-btn w-full text-left px-4 py-3 rounded-lg hover:bg-white hover:bg-opacity-20 transition font-medium admin-only"
+                    style="display:none;">
+                    ⚙️ Impostazioni
+                </button>
             </nav>
 
             <div class="mt-8 p-4 bg-white bg-opacity-10 rounded-lg">
@@ -197,7 +214,7 @@
                         <div
                             class="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center text-white text-3xl mx-auto mb-4">
                             💊</div>
-                        <h2 class="text-3xl font-bold text-gray-800 mb-2">Gestionale Farmaci</h2>
+                        <h2 class="text-3xl font-bold text-gray-800 mb-2">Stock Management</h2>
                     </div>
 
                     <form id="loginForm" onsubmit="window.handleLogin(event)" class="space-y-4">
@@ -218,8 +235,10 @@
                     </form>
 
 
-
                     <div id="loginError" class="mt-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm hidden"></div>
+
+                    <!-- TEMP BOOTSTRAP BUTTON -->
+
                 </div>
 
                 <!-- (Removed Gospel from bottom) -->
@@ -243,28 +262,76 @@
                 async function fetchDailyGospel() {
                     const gospelContainer = document.getElementById('gospelContainer');
                     try {
-                        const today = new Date().toISOString().split('T')[0];
-                        const response = await fetch(`https://evangelium.manuelsanchez.dev/api/it/days/${today}`);
+                        const today = new Date();
+                        const yyyy = today.getFullYear();
+                        const mm = String(today.getMonth() + 1).padStart(2, '0');
+                        const dd = String(today.getDate()).padStart(2, '0');
+                        const dateStr = `${yyyy}${mm}${dd}`;
+
+                        // Use CORSProxy.io as a more robust proxy for local file access
+                        const targetUrl = `https://feed.evangelizo.org/v2/reader.php?date=${dateStr}&type=all&lang=IT`;
+                        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+
+                        const response = await fetch(proxyUrl);
 
                         if (!response.ok) throw new Error('Errore nel recupero del Vangelo');
 
-                        const data = await response.json();
-                        const gospel = data.gospel;
+                        const htmlText = await response.text();
 
-                        // Clean text from custom markup like [[Mc 5,21]]
-                        const cleanText = gospel.text.replace(/\[\[.*?\]\]/g, '').trim();
-                        // Format paragraphs
-                        const formattedText = cleanText.split('\n').map(p => `<p class="mb-2">${p}</p>`).join('');
+                        // Parse the HTML
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(htmlText, 'text/html');
+
+                        // The feed structure is a bit loose. We need to find "Dal Vangelo" and extract following text.
+                        // Based on the feed format, sections are separated by <br>.
+                        // We will try to extract the text content and process it.
+
+                        const bodyContent = doc.body.innerHTML;
+
+                        // Split by triple breaks which seem to separate readings
+                        const sections = bodyContent.split('<br><br><br>');
+
+                        // Find the section containing "Dal Vangelo"
+                        let gospelSection = sections.find(s => s.includes('Dal Vangelo') || s.includes('Vangelo di'));
+
+                        let title = "Vangelo del Giorno";
+                        let reference = "";
+                        let textContent = "";
+
+                        if (gospelSection) {
+                            // Extract Title and Reference (first line usually)
+                            // Example: Dal Vangelo di Gesù Cristo secondo Luca <font dir="ltr">9,22-25.</font>
+                            const tempDiv = document.createElement('div');
+                            tempDiv.innerHTML = gospelSection;
+
+                            // Get all text nodes and elements
+                            const textParts = tempDiv.innerText.split('\n').filter(line => line.trim() !== '');
+
+                            if (textParts.length > 0) {
+                                const firstLine = textParts[0];
+                                // Try to split title and reference if possible, or just keep it as title
+                                title = firstLine;
+                                // Remove first line from text
+                                textContent = textParts.slice(1).join('<br><br>');
+                            } else {
+                                textContent = "Testo non disponibile.";
+                            }
+                        } else {
+                            // Fallback if structure is unexpected
+                            textContent = "Impossibile estrarre il Vangelo dal feed.";
+                        }
 
                         gospelContainer.innerHTML = `
                             <div class="mb-3">
-                                <p class="text-xs font-bold text-purple-600 uppercase tracking-widest mb-1">${gospel.title}</p>
-                                <p class="text-xs text-gray-500">${gospel.reference_displayed}</p>
+                                <p class="text-xs font-bold text-purple-600 uppercase tracking-widest mb-1">OGGI</p>
+                                <p class="text-sm font-semibold text-gray-800">${title}</p>
                             </div>
-                            <div class="prose prose-sm text-gray-700">
-                                ${formattedText}
+                            <div class="prose prose-sm text-gray-700 max-h-[60vh] overflow-y-auto">
+                                ${textContent}
                             </div>
+                            <p class="text-xs text-gray-400 mt-4 text-right">Fonte: Evangelizo via AllOrigins</p>
                         `;
+
                     } catch (error) {
                         console.error('Errore Vangelo:', error);
                         gospelContainer.innerHTML = '<p class="text-red-500 italic">Impossibile caricare il Vangelo di oggi.</p>';
@@ -281,13 +348,13 @@
                             <div
                                 class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
                                 <h2 class="text-3xl font-bold text-gray-800">📋 <span id="localeTitle">Magazzino
-                                        Farmacia</span></h2>
+                                        Centrale</span></h2>
 
                                 <div class="flex gap-2 items-center bg-gray-100 p-2 rounded-lg">
                                     <label class="text-sm font-semibold text-gray-600">Locale:</label>
                                     <select id="localeSelector" onchange="window.switchLocale(this.value)"
                                         class="px-3 py-2 border border-gray-300 rounded-lg bg-white font-semibold text-gray-700 focus:ring-2 focus:ring-purple-500 outline-none">
-                                        <option value="Magazzino Farmacia">Magazzino Farmacia</option>
+                                        <option value="Magazzino Centrale">Magazzino Centrale</option>
                                         <option value="Carrello">Carrello</option>
                                     </select>
                                     <button onclick="window.addNewLocale()"
@@ -331,16 +398,17 @@
                                     class="bg-gradient-to-r from-blue-500 to-purple-600 text-white sticky top-0 z-10">
                                     <tr>
                                         <th class="px-2 py-2 text-left text-xs">GTIN</th>
-                                        <th class="px-2 py-2 text-left text-xs">AIC</th>
+                                        <th id="th-aic" class="px-2 py-2 text-left text-xs">AIC</th>
                                         <th class="px-2 py-2 text-left text-xs w-32">Nome</th>
-                                        <th class="px-2 py-2 text-left text-xs w-24">Principio</th>
-                                        <th class="px-2 py-2 text-left text-xs w-24">Ditta</th>
+                                        <th id="th-principio" class="px-2 py-2 text-left text-xs w-24">Principio</th>
+                                        <th id="th-ditta" class="px-2 py-2 text-left text-xs w-24">Ditta</th>
                                         <th class="px-2 py-2 text-left text-xs w-48">Descrizione</th>
+                                        <th class="px-2 py-2 text-right text-xs w-24">Prezzo €</th>
                                         <th class="px-2 py-2 text-center text-xs">Scad.</th>
                                         <th class="px-2 py-2 text-center text-xs admin-only" style="display:none;">
                                             Attivo</th>
                                         <th id="headerGiacenza" class="px-2 py-2 text-right text-xs">Att.</th>
-                                        <th class="px-2 py-2 text-right text-xs">Q.Rep</th>
+                                        <th class="px-2 py-2 text-right text-xs" style="display:none;">Q.Rep</th>
                                         <th class="px-2 py-2 text-right text-xs admin-only" style="display:none;">Min.
                                         </th>
 
@@ -373,7 +441,8 @@
                             <table class="w-full text-sm">
                                 <thead class="bg-gradient-to-r from-green-500 to-emerald-600 text-white">
                                     <tr>
-                                        <th class="px-2 py-2 text-left text-xs print-hidden">AIC</th>
+                                        <th class="px-2 py-2 text-left text-xs">GTIN</th>
+                                        <th class="px-2 py-2 text-left text-xs">AIC</th>
                                         <th class="px-2 py-2 text-left text-xs">Nome</th>
                                         <th class="px-2 py-2 text-left text-xs">Principio</th>
                                         <th class="px-2 py-2 text-left text-xs">Descrizione</th>
@@ -438,16 +507,16 @@
                 <div id="tab-import" class="tab-content p-6 hidden admin-only h-full overflow-auto"
                     style="display:none;">
                     <div class="max-w-2xl">
-                        <h2 class="text-3xl font-bold text-gray-800 mb-6">📥 Importa CSV Prontuario</h2>
+                        <h2 class="text-3xl font-bold text-gray-800 mb-6">📥 Importa Prontuario Prodotti</h2>
 
                         <div class="bg-white rounded-lg shadow p-8">
                             <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-blue-500 transition"
                                 onclick="document.getElementById('csvFile').click()">
                                 <div class="text-4xl mb-4">📄</div>
-                                <p class="text-lg font-semibold text-gray-700 mb-2">Carica il file CSV</p>
-                                <p class="text-gray-600 mb-4">Clicca per selezionare il prontuario farmaci</p>
-                                <input type="file" id="csvFile" accept=".csv" onchange="window.handleCSVUpload(event)"
-                                    class="hidden">
+                                <p class="text-lg font-semibold text-gray-700 mb-2">Carica il file Excel o CSV</p>
+                                <p class="text-gray-600 mb-4">Clicca per selezionare il prontuario prodotti</p>
+                                <input type="file" id="csvFile" accept=".csv, .xlsx, .xls"
+                                    onchange="window.handleCSVUpload(event)" class="hidden">
                             </div>
 
                             <div id="importProgress" class="mt-6 hidden">
@@ -467,22 +536,26 @@
                         </div>
 
                         <div class="mt-8 bg-blue-50 rounded-lg p-6">
-                            <h3 class="font-semibold text-blue-900 mb-3">Formato CSV Accettati:</h3>
-                            <p class="text-sm text-blue-800 font-mono bg-white p-3 rounded mb-3">AIC,Principio
+                            <h3 class="font-semibold text-blue-900 mb-3">Formati File Accettati (Excel, CSV):</h3>
+                            <p class="text-sm text-blue-800 font-mono bg-white p-3 rounded mb-3">AIC (o
+                                Codice),Principio
                                 attivo,Nome,Descrizione,In fascia,Ditta</p>
-                            <p class="text-sm text-blue-800 font-mono bg-white p-3 rounded mb-3">AIC;Principio
+                            <p class="text-sm text-blue-800 font-mono bg-white p-3 rounded mb-3">AIC (o
+                                Codice);Principio
                                 attivo;Nome;Descrizione;In fascia;Ditta</p>
-                            <p class="text-sm text-blue-700">✅ Supporta sia virgola che punto e virgola come separatore!
+                            <p class="text-sm text-blue-700">✅ Supporta file Excel (.xlsx, .xls) e file CSV (virgola e
+                                punto e virgola)!
                             </p>
                         </div>
 
                         <!-- FORM AGGIUNTA MANUALE FARMACO -->
                         <div class="mt-8 bg-green-50 rounded-lg p-6">
-                            <h3 class="font-semibold text-green-900 mb-4">➕ Aggiungi Farmaco Manualmente</h3>
+                            <h3 class="font-semibold text-green-900 mb-4">➕ Aggiungi Prodotto Manualmente</h3>
                             <form id="addFarmacoForm" onsubmit="window.handleAddFarmaco(event)"
                                 class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">AIC *</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Codice
+                                        *</label>
                                     <input type="text" id="addAIC"
                                         class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
                                         placeholder="es. 10858030">
@@ -500,7 +573,9 @@
                                         placeholder="es. MYCOSTATIN">
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Principio Attivo
+                                    <label
+                                        class="block text-sm font-medium text-gray-700 mb-1 label-principio">Principio
+                                        Attivo
                                         *</label>
                                     <input type="text" id="addPrincipio" required
                                         class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
@@ -513,15 +588,24 @@
                                         placeholder="es. os sosp 100.000 UI/ml 100 ml">
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">In Fascia</label>
-                                    <input type="text" id="addFascia"
-                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
-                                        placeholder="es. A">
+                                    <div class="pharmacy-only-field">
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">In Fascia</label>
+                                        <input type="text" id="addFascia"
+                                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                                            placeholder="es. A">
+                                    </div>
                                 </div>
                                 <div>
                                     <input type="text" id="addDitta"
                                         class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
                                         placeholder="es. BRISTOL-MYERS SQUIBB">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Prezzo €
+                                        (Opzionale)</label>
+                                    <input type="number" step="0.01" id="addPrezzo"
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                                        placeholder="es. 12.50">
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Scadenza</label>
@@ -531,7 +615,7 @@
                                 <div class="md:col-span-2">
                                     <button type="submit"
                                         class="w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-2 rounded-lg transition">
-                                        ✅ Aggiungi Farmaco
+                                        ✅ Aggiungi Prodotto
                                     </button>
                                 </div>
                             </form>
@@ -612,7 +696,7 @@
                     <div class="max-w-7xl">
                         <h2 class="text-3xl font-bold text-gray-800 mb-6">📈 Report Consumo Annuale</h2>
 
-                        <div class="mb-6 flex gap-4">
+                        <div class="mb-6 flex gap-4 flex-wrap">
                             <select id="annoReport"
                                 class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
                                 <option value="">Seleziona Anno</option>
@@ -625,6 +709,39 @@
                                 class="bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded-lg font-semibold transition">
                                 📥 Scarica CSV
                             </button>
+                            <button onclick="window.generaReportGemini()"
+                                class="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-6 py-2 rounded-lg font-bold shadow-md transition flex items-center gap-2">
+                                ✨ Analisi AI Gemini
+                            </button>
+                        </div>
+
+                        <!-- GEMINI RESULT CONTAINER -->
+                        <div id="geminiReportContainer"
+                            class="hidden mb-8 bg-white rounded-xl shadow-lg border border-purple-100 overflow-hidden">
+                            <div
+                                class="bg-gradient-to-r from-purple-600 to-indigo-600 p-4 flex justify-between items-center text-white">
+                                <div class="flex items-center gap-3">
+                                    <span class="text-2xl">✨</span>
+                                    <h3 class="text-lg font-bold">Analisi Strategica Gemini</h3>
+                                </div>
+                                <button
+                                    onclick="document.getElementById('geminiReportContainer').classList.add('hidden')"
+                                    class="text-white hover:bg-white/20 rounded-full p-1 transition">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M6 18L18 6M6 6l12 12"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div id="geminiReportContent" class="p-8 prose prose-purple max-w-none text-gray-700">
+                                <!-- Markdown content injected here -->
+                            </div>
+                            <div id="geminiLoading" class="hidden p-12 flex flex-col items-center justify-center">
+                                <div
+                                    class="loader w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mb-4">
+                                </div>
+                                <p class="text-purple-700 font-medium">Gemini sta analizzando i dati di consumo...</p>
+                            </div>
                         </div>
 
                         <!-- Statistiche Generali -->
@@ -642,7 +759,7 @@
                                 <p class="text-3xl font-bold text-purple-600" id="stat-spesa-totale">€ 0,00</p>
                             </div>
                             <div class="bg-orange-50 p-4 rounded-lg border-l-4 border-orange-500">
-                                <p class="text-sm text-gray-600">Farmaci Movimentati</p>
+                                <p class="text-sm text-gray-600">Prodotti Movimentati</p>
                                 <p class="text-3xl font-bold text-orange-600" id="stat-farmaci-mov">0</p>
                             </div>
                         </div>
@@ -654,26 +771,26 @@
                                 <canvas id="chartConsumoMensile"></canvas>
                             </div>
                             <div class="bg-white rounded-lg shadow p-6">
-                                <h3 class="text-lg font-bold text-gray-800 mb-4">Top 10 Farmaci Ordinati</h3>
+                                <h3 class="text-lg font-bold text-gray-800 mb-4">Top 10 Prodotti Ordinati</h3>
                                 <canvas id="chartTopOrdini"></canvas>
                             </div>
                         </div>
 
                         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                             <div class="bg-white rounded-lg shadow p-6">
-                                <h3 class="text-lg font-bold text-gray-800 mb-4">Top 10 Farmaci Reparto</h3>
+                                <h3 class="text-lg font-bold text-gray-800 mb-4">Top 10 Prodotti Reparto</h3>
                                 <canvas id="chartTopReparto"></canvas>
                             </div>
                             <div class="bg-white rounded-lg shadow p-6">
-                                <h3 class="text-lg font-bold text-gray-800 mb-4">Spesa per Farmaco</h3>
+                                <h3 class="text-lg font-bold text-gray-800 mb-4">Spesa per Prodotto</h3>
                                 <canvas id="chartSpesaFarmaco"></canvas>
                             </div>
                         </div>
 
-                        <!-- Tabella Top 25 Farmaci con Prezzi Editabili -->
+                        <!-- Tabella Top 25 Prodotti con Prezzi Editabili -->
                         <div class="bg-white rounded-lg shadow p-6">
                             <div class="flex justify-between items-center mb-4">
-                                <h3 class="text-lg font-bold text-gray-800">Top 25 Farmaci - Inserisci Prezzi</h3>
+                                <h3 class="text-lg font-bold text-gray-800">Top 25 Prodotti - Inserisci Prezzi</h3>
                                 <button onclick="window.salvaPrezziFarmaci()"
                                     class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-semibold">💾
                                     Salva Prezzi</button>
@@ -684,7 +801,7 @@
                                         <tr>
                                             <th class="px-3 py-2 text-left">Pos.</th>
                                             <th class="px-3 py-2 text-left">AIC</th>
-                                            <th class="px-3 py-2 text-left">Nome Farmaco</th>
+                                            <th class="px-3 py-2 text-left">Nome Prodotto</th>
                                             <th class="px-3 py-2 text-right">Ordini</th>
                                             <th class="px-3 py-2 text-right">Reparto</th>
                                             <th class="px-3 py-2 text-right">Totale</th>
@@ -702,9 +819,10 @@
                             </div>
                         </div>
 
-                        <!-- Tabella Tutti i Farmaci -->
+                        <!-- Tabella Tutti i Prodotti -->
                         <div class="bg-white rounded-lg shadow p-6 mt-6">
-                            <h3 class="text-lg font-bold text-gray-800 mb-4">Dettagli Consumo Completo (Tutti i Farmaci)
+                            <h3 class="text-lg font-bold text-gray-800 mb-4">Dettagli Consumo Completo (Tutti i
+                                Prodotti)
                             </h3>
                             <div class="overflow-x-auto">
                                 <table class="w-full text-sm">
@@ -737,7 +855,7 @@
                 <div class="max-w-7xl">
                     <!-- HEADER + SEARCH -->
                     <div class="mb-6">
-                        <h2 class="text-3xl font-bold text-gray-800 mb-6">📥 Caricamento Farmaci da Scanner</h2>
+                        <h2 class="text-3xl font-bold text-gray-800 mb-6">📥 Caricamento Prodotto da Scanner</h2>
 
                         <div class="bg-white rounded-lg shadow p-6">
                             <div class="flex flex-col md:flex-row gap-4 items-center">
@@ -763,14 +881,14 @@
                         class="hidden animate-fade-in bg-yellow-50 rounded-lg shadow p-6 mb-6 border-l-4 border-yellow-500">
                         <div class="flex flex-col md:flex-row justify-between items-center gap-4">
                             <div>
-                                <h3 class="text-xl font-bold text-yellow-800">Farmaco non trovato</h3>
+                                <h3 class="text-xl font-bold text-yellow-800">Prodotto non trovato</h3>
                                 <p class="text-yellow-700">Il codice scansionato non è presente in archivio. Vuoi
                                     aggiungerlo ora?</p>
                                 <p class="text-xs text-yellow-600 mt-1 font-mono" id="notFoundDebugInfo"></p>
                             </div>
                             <button onclick="window.prepareAddFarmaco()"
                                 class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-bold shadow transition flex items-center gap-2">
-                                ➕ Aggiungi Nuovo Farmaco
+                                ➕ Aggiungi Nuovo Prodotto
                             </button>
                         </div>
                     </div>
@@ -780,13 +898,14 @@
                         class="hidden animate-fade-in bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-blue-500">
                         <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                             <div>
-                                <p class="text-xs font-bold text-blue-600 uppercase tracking-wider mb-1">Farmaco
+                                <p class="text-xs font-bold text-blue-600 uppercase tracking-wider mb-1">Prodotto
                                     Identificato</p>
-                                <h3 class="text-2xl font-bold text-gray-900" id="foundDrugName">Nome Farmaco</h3>
-                                <p class="text-gray-600 mb-2" id="foundDrugDesc">Descrizione farmaco...</p>
+                                <h3 class="text-2xl font-bold text-gray-900" id="foundDrugName">Nome Prodotto</h3>
+                                <p class="text-gray-600 mb-2" id="foundDrugDesc">Descrizione prodotto...</p>
                                 <div class="flex flex-wrap gap-4 text-sm items-center">
                                     <span
-                                        class="bg-blue-50 px-2 py-1 rounded border border-blue-200 text-blue-800 font-mono">AIC:
+                                        class="bg-blue-50 px-2 py-1 rounded border border-blue-200 text-blue-800 font-mono"><span
+                                            class="label-aic">AIC</span>:
                                         <b id="foundDrugAIC">000000</b></span>
                                     <span id="foundDrugGTINContainer"
                                         class="hidden bg-green-50 px-2 py-1 rounded border border-green-200 text-green-800 font-mono">GTIN:
@@ -848,7 +967,7 @@
                 <div class="max-w-7xl">
                     <!-- HEADER + SEARCH -->
                     <div class="mb-6">
-                        <h2 class="text-3xl font-bold text-gray-800 mb-6">📤 Scarico Farmaci da Reparto</h2>
+                        <h2 class="text-3xl font-bold text-gray-800 mb-6">📤 Scarico Prodotto da Reparto</h2>
 
                         <div class="bg-white rounded-lg shadow p-6">
                             <div class="flex flex-col md:flex-row gap-4 items-center">
@@ -874,13 +993,15 @@
                         class="hidden animate-fade-in bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-red-500">
                         <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                             <div>
-                                <p class="text-xs font-bold text-red-600 uppercase tracking-wider mb-1">Farmaco
+                                <p class="text-xs font-bold text-red-600 uppercase tracking-wider mb-1">Prodotto
                                     Identificato (Scarico)</p>
-                                <h3 class="text-2xl font-bold text-gray-900" id="foundDrugNameScarico">Nome Farmaco</h3>
-                                <p class="text-gray-600 mb-2" id="foundDrugDescScarico">Descrizione farmaco...</p>
+                                <h3 class="text-2xl font-bold text-gray-900" id="foundDrugNameScarico">Nome Prodotto
+                                </h3>
+                                <p class="text-gray-600 mb-2" id="foundDrugDescScarico">Descrizione prodotto...</p>
                                 <div class="flex gap-4 text-sm">
                                     <span
-                                        class="bg-red-50 px-2 py-1 rounded border border-red-200 text-red-800 font-mono">AIC:
+                                        class="bg-red-50 px-2 py-1 rounded border border-red-200 text-red-800 font-mono"><span
+                                            class="label-aic">AIC</span>:
                                         <b id="foundDrugAICScarico">000000</b></span>
                                     <span id="foundDrugGTINScaricoContainer"
                                         class="hidden bg-green-50 px-2 py-1 rounded border border-green-200 text-green-800 font-mono">GTIN:
@@ -897,7 +1018,7 @@
                                         Dove (Sorgente)</label>
                                     <select id="unloadSourceSelector" onchange="window.updateUnloadSourceStock()"
                                         class="w-full px-2 py-1 border rounded-lg bg-white text-center font-bold text-gray-700 text-sm mb-2">
-                                        <option value="Magazzino Farmacia" selected>Magazzino Farmacia</option>
+                                        <option value="Magazzino Centrale" selected>Magazzino Centrale</option>
                                     </select>
 
                                     <label class="block text-xs font-bold text-gray-500 uppercase mb-1 text-center">A
@@ -940,6 +1061,249 @@
             <!-- ...existing scarico tab... -->
         </div>
 
+        <!-- TAB: CARICO DA BOLLA -->
+        <div id="tab-bolle" class="tab-content p-6 hidden admin-only h-full overflow-auto" style="display:none;">
+            <div class="w-full">
+                <h2 class="text-3xl font-bold text-gray-800 mb-6">🧾 Carico da Bolla (IA)</h2>
+
+                <!-- Drag & Drop Zone -->
+                <div id="dropZone"
+                    class="border-4 border-dashed border-gray-300 rounded-xl p-10 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition mb-6">
+                    <div class="text-6xl mb-4">📸</div>
+                    <p class="text-xl font-bold text-gray-700">Trascina qui la foto della bolla</p>
+                    <p class="text-gray-500">oppure clicca per caricare</p>
+                    <input type="file" id="bollaFileInput" accept="image/*" class="hidden"
+                        onchange="window.handleBollaFiles(this.files)">
+                </div>
+
+                <!-- Loading Indicator -->
+                <div id="bollaLoading" class="hidden flex flex-col items-center justify-center p-8">
+                    <div
+                        class="loader w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4">
+                    </div>
+                    <p class="text-lg font-semibold text-gray-700">Analisi con Gemini in corso...</p>
+                    <p class="text-sm text-gray-500">Potrebbe richiedere alcuni secondi</p>
+                </div>
+
+                <!-- Results Table -->
+                <div id="bollaResults" class="hidden">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-xl font-bold text-gray-800">Risultati Analisi</h3>
+                        <div class="flex gap-2">
+                            <button onclick="window.clearBollaTable()"
+                                class="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg font-medium transition">
+                                🗑️ Pulisci
+                            </button>
+                            <button onclick="window.importAllBollaItems()"
+                                class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-bold shadow transition">
+                                📥 Carica Tutto in Magazzino
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow overflow-hidden">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gradient-to-r from-blue-500 to-indigo-600 text-white">
+                                <tr>
+                                    <th class="px-3 py-3 text-left">Qty</th>
+                                    <th class="px-3 py-3 text-left">Prodotto</th>
+                                    <th class="px-3 py-3 text-left">Principio</th>
+                                    <th class="px-3 py-3 text-left">Ditta</th>
+                                    <th class="px-3 py-3 text-left">Codice</th>
+                                    <th class="px-3 py-3 text-left">Scadenza</th>
+                                    <th class="px-3 py-3 text-left">Lotto</th>
+                                    <th class="px-3 py-3 text-center">Stato</th>
+                                    <th class="px-3 py-3 text-right">Azioni</th>
+                                </tr>
+                            </thead>
+                            <tbody id="bollaTableBody" class="divide-y divide-gray-200">
+                                <!-- Rows added here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: SCARICO DA ORDINE -->
+        <div id="tab-scarico-ordine" class="tab-content p-6 hidden admin-only h-full overflow-auto"
+            style="display:none;">
+            <div class="w-full">
+                <h2 class="text-3xl font-bold text-gray-800 mb-6">📉 Scarico da Ordine (IA)</h2>
+
+                <div class="bg-blue-50 p-4 rounded-lg mb-6 border border-blue-200">
+                    <p class="text-sm text-blue-800">
+                        ℹ️ Carica la foto della lista ordini. Il sistema identificherà i prodotti e scaricherà
+                        automaticamente le quantità dai <b>lotti con scadenza più vicina</b>.
+                    </p>
+                </div>
+
+                <!-- Locale Selectors -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+                        <label class="block text-sm font-bold text-gray-700 mb-2">Da Dove (Sorgente)</label>
+                        <select id="ordineSourceLocale"
+                            class="w-full px-4 py-2 border rounded-lg bg-gray-50 font-medium">
+                            <option value="Magazzino Centrale" selected>Magazzino Centrale</option>
+                        </select>
+                    </div>
+                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+                        <label class="block text-sm font-bold text-gray-700 mb-2">A Dove (Destinazione)</label>
+                        <select id="ordineDestLocale" class="w-full px-4 py-2 border rounded-lg bg-gray-50 font-medium">
+                            <option value="Esterno/Vendita" selected>Esterno/Vendita</option>
+                            <option value="Reparto">Reparto</option>
+                            <option value="Carrello">Carrello</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Drag & Drop Zone -->
+                <div id="dropZoneOrdine" onclick="document.getElementById('ordineFileInput').click()"
+                    class="border-4 border-dashed border-gray-300 rounded-xl p-10 text-center cursor-pointer hover:border-red-500 hover:bg-red-50 transition mb-6">
+                    <div class="text-6xl mb-4">📸</div>
+                    <p class="text-xl font-bold text-gray-700">Trascina qui la foto dell'ordine</p>
+                    <p class="text-gray-500">oppure clicca per caricare</p>
+                    <input type="file" id="ordineFileInput" accept="image/*" class="hidden"
+                        onchange="window.handleOrderFiles(this.files)">
+                </div>
+
+                <!-- Loading Indicator -->
+                <div id="ordineLoading" class="hidden flex flex-col items-center justify-center p-8">
+                    <div
+                        class="loader w-12 h-12 border-4 border-red-500 border-t-transparent rounded-full animate-spin mb-4">
+                    </div>
+                    <p class="text-lg font-semibold text-gray-700">Analisi con Gemini in corso...</p>
+                    <p class="text-sm text-gray-500">Identificazione prodotti e lotti in scadenza...</p>
+                </div>
+
+                <!-- Results Table -->
+                <div id="ordineResults" class="hidden">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-xl font-bold text-gray-800">Risultati Analisi</h3>
+                        <div class="flex gap-2">
+                            <button onclick="window.clearOrdineTable()"
+                                class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition">
+                                🗑️ Pulisci
+                            </button>
+                            <button onclick="window.executeOrderUnload()"
+                                class="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg font-bold shadow transition">
+                                📤 Conferma Scarico
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow overflow-hidden">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gradient-to-r from-red-500 to-orange-600 text-white">
+                                <tr>
+                                    <th class="px-3 py-3 text-left">Qty</th>
+                                    <th class="px-3 py-3 text-left">Prodotto Rilevato</th>
+                                    <th class="px-3 py-3 text-left">Codice</th>
+                                    <th class="px-3 py-3 text-left">Lotto Scelto (Scadenza)</th>
+                                    <th class="px-3 py-3 text-center">Stato</th>
+                                    <th class="px-3 py-3 text-right">Azioni</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ordineTableBody" class="divide-y divide-gray-200">
+                                <!-- Rows added here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: SETTINGS (Former Superadmin) -->
+        <div id="tab-superadmin" class="tab-content p-6 hidden admin-only h-full overflow-auto" style="display:none;">
+            <div class="max-w-4xl mx-auto">
+                <h2 class="text-3xl font-bold text-gray-800 mb-8">⚙️ Impostazioni & Admin</h2>
+
+                <!-- SETTINGS CARD -->
+                <div class="bg-white rounded-lg shadow p-6 mb-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">⚙️ Configurazione Generale</h3>
+                    <div class="flex items-center justify-between bg-gray-50 p-4 rounded-lg">
+                        <div>
+                            <p class="font-bold text-gray-700">Modalità Applicazione</p>
+                            <p class="text-sm text-gray-500">Scegli tra gestione Farmacia (AIC, Fasce) o Magazzino
+                                Generico (Codici, Categorie).</p>
+                        </div>
+                        <select id="appModeSelector" onchange="window.setAppMode(this.value)"
+                            class="border rounded-lg px-3 py-2 font-semibold text-gray-700">
+                            <option value="pharmacy">🏥 Farmacia</option>
+                            <option value="warehouse">📦 Magazzino Generico</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Create Pharmacy & User Form (SUPERADMIN ONLY) -->
+                <div class="bg-white rounded-xl shadow-lg p-8 mb-8 border border-gray-100 superadmin-only"
+                    style="display:none;">
+                    <h3 class="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                        <span class="bg-blue-100 text-blue-600 p-2 rounded-lg">🏥</span>
+                        Crea Nuova Farmacia & Admin
+                    </h3>
+
+                    <form id="createPharmacyForm" onsubmit="window.handleCreatePharmacyUser(event)" class="space-y-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <!-- Pharmacy Details -->
+                            <div class="col-span-1 md:col-span-2 bg-blue-50 p-4 rounded-xl border border-blue-100">
+                                <label class="block text-sm font-bold text-blue-800 mb-3 uppercase tracking-wide">Dati
+                                    Farmacia</label>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Nome Farmacia
+                                            *</label>
+                                        <input type="text" id="newPhName" required
+                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                            placeholder="Es. Farmacia Centrale">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">ID Univoco (Slug)
+                                            *</label>
+                                        <input type="text" id="newPhId" required
+                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm"
+                                            placeholder="es. farmacia_centrale_torino">
+                                        <p class="text-xs text-gray-500 mt-1">Niente spazi, solo lettere minuscole e _
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- User Details -->
+                            <div class="col-span-1 md:col-span-2 bg-purple-50 p-4 rounded-xl border border-purple-100">
+                                <label class="block text-sm font-bold text-purple-800 mb-3 uppercase tracking-wide">Dati
+                                    Primo Admin</label>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Email Admin
+                                            *</label>
+                                        <input type="email" id="newAdminEmail" required
+                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
+                                            placeholder="admin@farmacia.it">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Password Iniziale
+                                            *</label>
+                                        <input type="text" id="newAdminPassword" required minlength="6"
+                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
+                                            placeholder="Minimo 6 caratteri">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end pt-4">
+                            <button type="submit"
+                                class="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-3 rounded-lg font-bold shadow-lg hover:shadow-xl transition transform hover:-translate-y-0.5">
+                                ✨ Crea Farmacia e Utente
+                            </button>
+                        </div>
+                    </form>
+                    <div id="createResult" class="mt-4 hidden p-4 rounded-lg font-semibold"></div>
+                </div>
+            </div>
+        </div>
+
         <!-- LOT SELECTION MODAL -->
         <div id="lotSelectionModal"
             class="fixed inset-0 z-50 hidden bg-black bg-opacity-50 flex items-center justify-center p-4">
@@ -947,7 +1311,7 @@
                 <div class="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
                     <div>
                         <h3 class="text-xl font-bold text-gray-800">Seleziona Lotto</h3>
-                        <p class="text-sm text-gray-500">Sono presenti più lotti per questo farmaco</p>
+                        <p class="text-sm text-gray-500">Sono presenti più lotti per questo prodotto</p>
                     </div>
                     <button onclick="document.getElementById('lotSelectionModal').classList.add('hidden')"
                         class="text-gray-400 hover:text-gray-600 transition">
@@ -985,8 +1349,8 @@
                     userRole: null,
                     currentPharmacyId: null,
                     allFarmaci: [],
-                    activeLocales: ['Magazzino Farmacia', 'Carrello'],
-                    currentLocale: 'Magazzino Farmacia',
+                    activeLocales: ['Magazzino Centrale', 'Carrello'],
+                    currentLocale: 'Magazzino Centrale',
                     scannedDrug: null, // For Carico
                     scannedDrugScarico: null, // For Scarico
                     filterOnlyActive: true,
@@ -1013,13 +1377,18 @@
                 throw new Error("Firebase SDK missing");
             }
 
-            let auth, db;
+            let auth, db, functions;
             try {
                 if (!firebase.apps.length) {
                     firebase.initializeApp(App.firebaseConfig);
                 }
                 auth = firebase.auth();
                 db = firebase.firestore();
+                if (firebase.functions) {
+                    functions = firebase.app().functions("europe-west1");
+                } else {
+                    console.error("Firebase Functions SDK not loaded!");
+                }
                 console.log("✅ Firebase inizializzato correttamente");
             } catch (e) {
                 console.error("Errore inizializzazione Firebase:", e);
@@ -1111,30 +1480,60 @@
             // ============ SCANNING ENGINE ============
             App.scanner = {
                 parseDataMatrix: function (scanStr) {
-                    let clean = scanStr;
-                    let aic = null, scadenza = null, gtin = null;
+                    if (!scanStr) return null;
+                    let clean = scanStr.trim();
+                    let aic = null, scadenza = null, gtin = null, lotto = null;
 
-                    // 0. Simple 13-digit EAN-13/GTIN check (Raw)
-                    if (/^\d{13}$/.test(clean)) {
-                        return { aic: null, scadenza: null, gtin: clean, raw: scanStr };
+                    console.log("Parsing DataMatrix Raw:", clean);
+
+                    // 0. Simple 13/14-digit EAN/GTIN check (Raw)
+                    if (/^\d{13,14}$/.test(clean)) {
+                        // Check if it starts with 0 (GTIN-14) or is EAN-13
+                        return { aic: null, scadenza: null, gtin: clean, lotto: null, raw: scanStr };
                     }
 
-                    // 1. GTIN (01)
-                    const gtinMatch = clean.match(/(?:01|\(01\))(\d{14})/);
+                    // Helper for robust AI extraction: (AI) or AI + optional whitespace
+                    // We handle both parentheses and plain AI sequences (GS1 syntax often uses FNC1 which might be invisible or replaced)
+
+                    // 1. GTIN (01) - 14 digits
+                    // Matches (01)123... or 01123...
+                    const gtinMatch = clean.match(/(?:01|\(01\))\s*(\d{14})/);
                     if (gtinMatch) gtin = gtinMatch[1];
 
-                    // 2. Expiry (17) YYMMDD
-                    const expMatch = clean.match(/(?:17|\(17\))(\d{6})/);
+                    // 2. Expiry (17) - YYMMDD
+                    // Matches (17)YYMMDD or 17YYMMDD
+                    const expMatch = clean.match(/(?:17|\(17\))\s*(\d{6})/);
                     if (expMatch) {
                         const yymmdd = expMatch[1];
-                        scadenza = `20${yymmdd.substring(0, 2)}-${yymmdd.substring(2, 4)}-${yymmdd.substring(4, 6)}`;
+                        // Validate simplistic date parts
+                        const yy = parseInt(yymmdd.substring(0, 2));
+                        const mm = parseInt(yymmdd.substring(2, 4));
+                        const dd = parseInt(yymmdd.substring(4, 6)); // 00 is valid in GS1 for "end of month"
+
+                        // Construct ISO date
+                        let day = dd === 0 ? '25' : (dd < 10 ? '0' + dd : '' + dd); // Default logic 25 if 00? Or just last day?
+                        // Original user requested day 25 if not provided (GS1 DD=00 means last day of month usually, but user logic prevails)
+                        if (dd === 0) day = '25';
+
+                        let month = mm < 10 ? '0' + mm : '' + mm;
+                        let year = 2000 + yy; // Assumes 20xx
+
+                        scadenza = `${year}-${month}-${day}`;
                     }
 
-                    // 3. AIC (716)
-                    const aicMatch = clean.match(/(?:716|\(716\))(\d{9})/);
+                    // 3. AIC (716) - 9 digits
+                    const aicMatch = clean.match(/(?:716|\(716\))\s*(\d{9})/);
                     if (aicMatch) aic = aicMatch[1];
 
-                    if (aic || gtin || scadenza) return { aic, scadenza, gtin, raw: scanStr };
+                    // 4. Lot (10) - Alphanumeric variable length (upto 20)
+                    // Ends at non-alphanum or end of string or next AI start parenthesis
+                    // Regex: (10) then capture chars until ( or end.
+                    const lotMatch = clean.match(/(?:10|\(10\))\s*([A-Za-z0-9]+)/);
+                    if (lotMatch) lotto = lotMatch[1];
+
+                    console.log("Parsed:", { aic, scadenza, gtin, lotto });
+
+                    if (aic || gtin || scadenza || lotto) return { aic, scadenza, gtin, lotto, raw: scanStr };
                     return null;
                 },
 
@@ -1143,7 +1542,15 @@
                     // Use standard array if App state is empty (legacy fallback)
                     const source = App.state.allFarmaci.length > 0 ? App.state.allFarmaci : allFarmaci;
 
-                    // 1. Substring Smart Search
+                    // 0. Exact Match (Priority for Warehouse/Short Codes)
+                    const exact = source.find(f => {
+                        if (!f.aic) return false;
+                        const cleanAIC = String(f.aic).replace(/^0+/, '');
+                        return cleanAIC === cleanInput;
+                    });
+                    if (exact) return { drug: exact, method: 'exact' };
+
+                    // 1. Substring Smart Search (Only if length > 4 to avoid noise)
                     const potentialMatch = source.find(f => {
                         if (!f.aic) return false;
                         const cleanAIC = String(f.aic).replace(/^0+/, '');
@@ -1204,8 +1611,8 @@
             let filterOnlyActive = true;
 
             // LOCALI MANAGEMENT
-            let currentLocale = 'Magazzino Farmacia';
-            let activeLocales = ['Magazzino Farmacia', 'Carrello'];
+            let currentLocale = 'Magazzino Centrale';
+            let activeLocales = ['Magazzino Centrale', 'Carrello'];
 
             window.switchLocale = function (localeName) {
                 currentLocale = localeName;
@@ -1232,7 +1639,7 @@
                 // Or better: show a list and ask to type name?
 
                 const listStr = activeLocales
-                    .filter(l => l !== 'Magazzino Farmacia' && l !== 'Carrello')
+                    .filter(l => l !== 'Magazzino Centrale' && l !== 'Carrello')
                     .join('\n');
 
                 if (!listStr) {
@@ -1243,7 +1650,7 @@
                 const toDelete = prompt(`Locali esistenti:\n${listStr}\n\nInserisci il nome ESATTO del locale da eliminare:`);
                 if (!toDelete) return;
 
-                if (toDelete === 'Magazzino Farmacia' || toDelete === 'Carrello') {
+                if (toDelete === 'Magazzino Centrale' || toDelete === 'Carrello') {
                     alert("Non puoi eliminare i locali di sistema.");
                     return;
                 }
@@ -1261,7 +1668,7 @@
 
                 // If we were on that locale, switch to master
                 if (currentLocale === toDelete) {
-                    window.switchLocale('Magazzino Farmacia');
+                    window.switchLocale('Magazzino Centrale');
                 }
 
                 alert("Locale eliminato.");
@@ -1278,11 +1685,130 @@
                 }
             }
 
+
+
+            // APP CONFIGURATION (Mode: 'pharmacy' vs 'warehouse')
+            let appMode = 'pharmacy'; // Default
+
+            async function saveAppConfig(newMode) {
+                try {
+                    // Save to 'appMode' field to match implementation plan, or 'mode' if preferred.
+                    // Previous code used 'mode', but my plan said 'appMode'. I will use 'appMode'.
+                    await getCollectionRef('settings').doc('config').set({ appMode: newMode }, { merge: true });
+                    alert('Modalità aggiornata! La pagina verrà ricaricata.');
+                    window.location.reload();
+                } catch (e) {
+                    console.error('Error saving config:', e);
+                    alert('Errore salvataggio impostazioni: ' + e.message);
+                }
+            }
+
+            async function loadAppConfig() {
+                try {
+                    const doc = await getCollectionRef('settings').doc('config').get();
+                    if (doc.exists) {
+                        const data = doc.data();
+                        if (data.appMode) appMode = data.appMode;
+                        else if (data.mode) appMode = data.mode; // Backwards compatibility
+                    }
+                    console.log("App Mode loaded:", appMode);
+
+                    // Apply mode to UI
+                    applyAppMode();
+
+                    // Update Selector if exists
+                    const selector = document.getElementById('appModeSelector');
+                    if (selector) selector.value = appMode;
+
+                } catch (e) {
+                    console.error("Errore caricamento config:", e);
+                }
+            }
+
+            window.setAppMode = function (mode) {
+                if (confirm('Cambiare modalità in ' + (mode === 'warehouse' ? 'Magazzino Generico' : 'Farmacia') + '?')) {
+                    saveAppConfig(mode);
+                } else {
+                    // Reset selector
+                    const selector = document.getElementById('appModeSelector');
+                    if (selector) selector.value = appMode;
+                }
+            };
+
+            function applyAppMode() {
+                const isWarehouse = appMode === 'warehouse';
+
+                // 1. Labels Rewrite
+                document.querySelectorAll('.label-aic').forEach(el => el.textContent = isWarehouse ? 'Codice Articolo' : 'AIC');
+                document.querySelectorAll('.label-principio').forEach(el => el.textContent = isWarehouse ? 'Categoria / Marca' : 'Principio Attivo');
+                document.querySelectorAll('.label-ditta').forEach(el => el.textContent = isWarehouse ? 'Fornitore' : 'Ditta Produttrice');
+
+                // 2. Table Headers (Specific IDs)
+                const thAIC = document.getElementById('th-aic');
+                if (thAIC) thAIC.textContent = isWarehouse ? 'Codice' : 'AIC';
+
+                const thPrincipio = document.getElementById('th-principio');
+                if (thPrincipio) thPrincipio.textContent = isWarehouse ? 'Categoria' : 'Principio';
+
+                const thDitta = document.getElementById('th-ditta');
+                if (thDitta) thDitta.textContent = isWarehouse ? 'Fornitore' : 'Ditta';
+
+                // 3. Search Placeholders
+                const mainSearch = document.getElementById('searchInput');
+                if (mainSearch) {
+                    mainSearch.placeholder = isWarehouse ?
+                        "🔍 Cerca per Codice, Nome, Categoria..." :
+                        "🔍 Cerca per AIC, Nome, Principio...";
+                }
+
+                // Scanner Placeholders
+                const scanInput = document.getElementById('scanInput');
+                if (scanInput) {
+                    scanInput.placeholder = isWarehouse ?
+                        "Scansiona Barcode o Inserisci Codice..." :
+                        "Scansiona Data Matrix o Inserisci AIC...";
+                }
+
+                const scanInputScarico = document.getElementById('scanInputScarico');
+                if (scanInputScarico) {
+                    scanInputScarico.placeholder = isWarehouse ?
+                        "Scansiona Barcode o Inserisci Codice..." :
+                        "Scansiona Data Matrix o Inserisci AIC per SCARICO...";
+                }
+
+                // 4. Form Visibility (Fascia, Sanitaria, etc)
+                const pharmacyOnlyFields = document.querySelectorAll('.pharmacy-only-field');
+                pharmacyOnlyFields.forEach(el => el.style.display = isWarehouse ? 'none' : '');
+
+                console.log(`[AppMode] Applied mode: ${appMode}`);
+            }
+
+
             async function loadLocaliSettings() {
                 try {
                     const doc = await getCollectionRef('settings').doc('locali').get();
                     if (doc.exists && doc.data().list) {
-                        activeLocales = doc.data().list;
+                        let loadedList = doc.data().list;
+
+                        // MIGRATION: Auto-rename "Magazzino Farmacia" to "Magazzino Centrale"
+                        if (loadedList.includes('Magazzino Farmacia')) {
+                            console.log("MIGRATION: Updating 'Magazzino Farmacia' to 'Magazzino Centrale'...");
+                            loadedList = loadedList.map(l => l === 'Magazzino Farmacia' ? 'Magazzino Centrale' : l);
+
+                            // Remove duplicates if any
+                            loadedList = [...new Set(loadedList)];
+
+                            activeLocales = loadedList;
+                            await saveLocaliSettings(); // Persist the change
+
+                            // FORCE SWITCH to valid locale if we just migrated
+                            if (currentLocale === 'Magazzino Farmacia') {
+                                window.switchLocale('Magazzino Centrale');
+                            }
+                            console.log("MIGRATION: Complete.");
+                        } else {
+                            activeLocales = loadedList;
+                        }
                     }
                     renderLocaleSelector();
                 } catch (e) {
@@ -1306,11 +1832,11 @@
                     // OR unload TO 'Carrello' (waste/exit) or specific Locale.
                     // User requested: "Carrello deve esistere per lo scarico"
                     // So we keep all locales + Carrello (which is in activeLocales by default)
-                    // Usually we exclude 'Magazzino Farmacia' if we are unloading FROM it?
+                    // Usually we exclude 'Magazzino Centrale' if we are unloading FROM it?
                     // But logic is flexible. Let's just show all activeLocales.
 
                     selScarico.innerHTML = activeLocales
-                        .filter(l => l !== 'Magazzino Farmacia') // Optional: hide self/warehouse
+                        .filter(l => l !== 'Magazzino Centrale') // Optional: hide self/warehouse
                         .map(l => `<option value="${l}" ${l === 'Carrello' ? 'selected' : ''}>${l}</option>`).join('');
                 }
             }
@@ -1323,39 +1849,40 @@
 
             // ============ GESTIONE RUOLI ============
 
-            async function getUserRole(uid) {
-                try {
-                    const userDoc = await db.collection('users').doc(uid).get();
-                    if (userDoc.exists) {
-                        const data = userDoc.data();
-                        return {
-                            role: data.role || 'nurse',
-                            pharmacyId: data.pharmacyId || 'default_pharmacy' // Default for legacy users
-                        };
-                    }
-                    return { role: 'nurse', pharmacyId: 'default_pharmacy' };
-                } catch (error) {
-                    console.error('Errore nel recupero del ruolo:', error);
-                    return 'nurse';
-                }
-            }
+            // getUserRole moved to end of file
+
 
             function updateUIBasedOnRole() {
                 const adminElements = document.querySelectorAll('.admin-only');
                 const nurseElements = document.querySelectorAll('.nurse-only');
+                const nurseDisabled = document.querySelectorAll('.nurse-only-disabled');
+                const superadminElements = document.querySelectorAll('.superadmin-only');
 
-                if (userRole === 'admin') {
+                // Reset all
+                adminElements.forEach(el => el.style.display = 'none');
+                nurseElements.forEach(el => el.style.display = 'none');
+                superadminElements.forEach(el => el.style.display = 'none');
+                nurseDisabled.forEach(el => el.disabled = true);
+
+                if (userRole === 'superadmin') {
+                    // Superadmin sees everything admin sees + superadmin stuff
                     adminElements.forEach(el => el.style.display = '');
-                    nurseElements.forEach(el => el.style.display = 'none');
+                    superadminElements.forEach(el => el.style.display = '');
+                    nurseDisabled.forEach(el => el.disabled = false); // Enabled for superadmin too
+
+                    document.getElementById('userRole').textContent = 'SuperAdmin';
+                    document.getElementById('userRole').className = 'role-badge bg-purple-900 text-white shadow-lg';
+
+                } else if (userRole === 'admin') {
+                    adminElements.forEach(el => el.style.display = '');
+                    nurseDisabled.forEach(el => el.disabled = false);
+
                     document.getElementById('userRole').textContent = 'Admin';
                     document.getElementById('userRole').className = 'role-badge role-badge-admin';
-                    document.getElementById('filterActiveBtn').disabled = false;
                 } else {
-                    adminElements.forEach(el => el.style.display = 'none');
                     nurseElements.forEach(el => el.style.display = '');
                     document.getElementById('userRole').textContent = 'Infermiera';
                     document.getElementById('userRole').className = 'role-badge role-badge-nurse';
-                    document.getElementById('filterActiveBtn').disabled = true;
                 }
 
                 // Show Pharmacy Name
@@ -1363,11 +1890,57 @@
                 document.getElementById('pharmacyNameDisplay').textContent = phName ? `- ${phName}` : '';
             }
 
+            // SUPERADMIN HANDLERS
+            window.handleCreatePharmacyUser = async function (e) {
+                e.preventDefault();
+                const submitBtn = e.target.querySelector('button[type="submit"]');
+                const resultDiv = document.getElementById('createResult');
+
+                const originalBtnText = submitBtn.innerText;
+                submitBtn.disabled = true;
+                submitBtn.innerText = "⏳ Creazione in corso...";
+                resultDiv.classList.add('hidden');
+
+                const phName = document.getElementById('newPhName').value;
+                const phId = document.getElementById('newPhId').value;
+                const email = document.getElementById('newAdminEmail').value;
+                const password = document.getElementById('newAdminPassword').value;
+
+                try {
+                    // FIX: Use the 'functions' instance initialized with europe-west1, or explicit call
+                    // const createFn = firebase.functions().httpsCallable('createPharmacyUser'); // <-- WRONG REGION
+                    const createFn = firebase.app().functions("europe-west1").httpsCallable('createPharmacyUser');
+
+                    const resp = await createFn({
+                        email,
+                        password,
+                        pharmacyName: phName,
+                        pharmacyId: phId,
+                        role: 'admin'
+                    });
+
+                    resultDiv.className = "mt-4 p-4 rounded-lg font-semibold bg-green-100 text-green-800 border border-green-200 animate-fade-in";
+                    resultDiv.innerText = `✅ Successo! Utente creato. UID: ${resp.data.uid}`;
+                    resultDiv.classList.remove('hidden');
+
+                    e.target.reset();
+
+                } catch (error) {
+                    console.error("Errore creazione:", error);
+                    resultDiv.className = "mt-4 p-4 rounded-lg font-semibold bg-red-100 text-red-800 border border-red-200 animate-fade-in";
+                    resultDiv.innerText = `❌ Errore: ${error.message}`;
+                    resultDiv.classList.remove('hidden');
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.innerText = originalBtnText;
+                }
+            };
+
             // ============ REPORT CONSUMO ============
 
             async function loadAnniDisponibili() {
                 try {
-                    const snapshot = await getCollectionRef('archivio_movimenti').select('anno').get();
+                    const snapshot = await getCollectionRef('archivio_movimenti').get();
                     const anni = new Set();
                     snapshot.forEach(doc => anni.add(doc.data().anno));
 
@@ -1399,9 +1972,119 @@
                     const consumoData = await calcolaConsumoAnnuale(anno);
                     reportConsumoData = consumoData;
                     renderReportConsumo(consumoData);
+                    // Hide Gemini report when regenerating standard
+                    document.getElementById('geminiReportContainer').classList.add('hidden');
                 } catch (error) {
                     console.error('Errore generazione report:', error);
                     alert(`Errore: ${error.message}`);
+                }
+            };
+
+            window.generaReportGemini = async function () {
+                const anno = document.getElementById('annoReport').value;
+                if (!anno) {
+                    alert('Seleziona prima un anno dal menu a tendina.');
+                    return;
+                }
+
+                // UI Loading
+                const container = document.getElementById('geminiReportContainer');
+                const content = document.getElementById('geminiReportContent');
+                const loading = document.getElementById('geminiLoading');
+
+                container.classList.remove('hidden');
+                content.classList.add('hidden');
+                loading.classList.remove('hidden');
+                // Scroll to container
+                container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+                try {
+                    // 1. Get Raw Data (reuse existing logic)
+                    let data = reportConsumoData;
+                    if (!data || data.anno !== anno) {
+                        data = await calcolaConsumoAnnuale(anno);
+                        reportConsumoData = data;
+                        renderReportConsumo(data); // Ensures UI is consistent
+                    }
+
+                    if (!data.consumo || data.consumo.length === 0) {
+                        throw new Error("Nessun dato di consumo disponibile per l'anno selezionato.");
+                    }
+
+                    // 2. Aggregate by Active Ingredient (Principio Attivo)
+                    // We need to group items manually as standard report is by AIC/GTIN
+                    const ingredientMap = {};
+
+                    data.consumo.forEach(item => {
+                        // Normalize Principle
+                        let principle = (item.principioAttivo || (item.originalObj ? item.originalObj.principioAttivo : null)) || 'Sconosciuto';
+
+                        if (principle === 'Sconosciuto' || !principle) {
+                            const found = allFarmaci.find(f => f.aic === item.aic || f.id === item.id);
+                            if (found && found.principioAttivo) principle = found.principioAttivo;
+                            else {
+                                // Fallback: Group by Product Name if principle is strictly missing
+                                principle = "PRODOTTO: " + item.nome;
+                            }
+                        }
+
+                        const cleanPrinciple = principle.trim().toUpperCase();
+
+                        if (!ingredientMap[cleanPrinciple]) {
+                            ingredientMap[cleanPrinciple] = {
+                                activeIngredient: cleanPrinciple,
+                                totalQty: 0,
+                                totalValue: 0,
+                                products: new Set()
+                            };
+                        }
+
+                        ingredientMap[cleanPrinciple].totalQty += item.qty;
+                        ingredientMap[cleanPrinciple].totalValue += item.spesa;
+                        ingredientMap[cleanPrinciple].products.add(item.nome);
+                    });
+
+                    const aggregatedData = Object.values(ingredientMap).map(ing => ({
+                        activeIngredient: ing.activeIngredient,
+                        totalQty: ing.totalQty,
+                        totalValue: ing.totalValue,
+                        topProducts: Array.from(ing.products).slice(0, 3) // Keep top 3 names for context
+                    }));
+
+                    // 3. Call Cloud Function
+                    const analyzeFn = functions.httpsCallable('analyzeConsumptionReport');
+                    const response = await analyzeFn({
+                        reportData: aggregatedData,
+                        year: anno
+                    });
+
+                    // 4. Render Markdown
+                    const mdText = response.data.reportMarkdown;
+
+                    // Simple MD-to-HTML parser (Bold, List, Header)
+                    let html = mdText
+                        .replace(/^### (.*$)/gim, '<h3 class="text-lg font-bold text-gray-800 mt-4 mb-2">$1</h3>')
+                        .replace(/^## (.*$)/gim, '<h2 class="text-xl font-bold text-purple-700 mt-6 mb-3 border-b pb-1">$1</h2>')
+                        .replace(/^# (.*$)/gim, '<h1 class="text-2xl font-bold text-gray-900 mb-4">$1</h1>')
+                        .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-gray-900">$1</strong>')
+                        .replace(/\*(.*?)\*/g, '<em class="italic">$1</em>')
+                        .replace(/^\- (.*$)/gim, '<li class="ml-4 list-disc">$1</li>') // List items
+                        .replace(/\n\n/g, '<p class="mb-2"></p>') // Paragraphs
+                        .replace(/\n/g, '<br>'); // Line breaks
+
+                    content.innerHTML = html;
+
+                    loading.classList.add('hidden');
+                    content.classList.remove('hidden');
+
+                } catch (error) {
+                    console.error("Generazione Report AI fallita:", error);
+                    loading.classList.add('hidden');
+                    content.innerHTML = `<div class="p-4 bg-red-50 text-red-700 rounded-lg">
+                        <p class="font-bold">❌ Errore generazione report</p>
+                        <p class="text-sm">${error.message}</p>
+                    </div>`;
+                    content.classList.remove('hidden');
                 }
             };
 
@@ -1415,8 +2098,21 @@
                 const currentYear = new Date().getFullYear();
                 const isCurrent = (parseInt(anno) === currentYear);
 
+                // 1. FETCH ARCHIVED DATA (Always check, for both past and current year partial archives)
+                try {
+                    const archivioDoc = await getCollectionRef('archivio_movimenti').doc(`anno_${anno}`).get();
+                    if (archivioDoc.exists) {
+                        const raw = archivioDoc.data().movimenti || [];
+                        const archivedScarichi = raw.filter(m => m.tipo === 'scarico');
+                        movimenti = movimenti.concat(archivedScarichi);
+                        console.log(`[Report] Loaded ${archivedScarichi.length} archived items for ${anno}`);
+                    }
+                } catch (e) {
+                    console.warn(`[Report] Archive check failed for ${anno} (might not exist):`, e);
+                }
+
+                // 2. FETCH LIVE DATA (Only if Current Year)
                 if (isCurrent) {
-                    // INFO: "report consumo annuale analizza tutti i movimenti di scarico fatti nell'anno"
                     const startOfYear = new Date(currentYear, 0, 1);
                     const endOfYear = new Date(currentYear, 11, 31, 23, 59, 59);
 
@@ -1445,25 +2141,37 @@
                             }
                         });
                     }
-                } else {
-                    // ARCHIVED DATA
-                    const archivioDoc = await getCollectionRef('archivio_movimenti').doc(`anno_${anno}`).get();
-                    if (archivioDoc.exists) {
-                        const raw = archivioDoc.data().movimenti || [];
-                        movimenti = raw.filter(m => m.tipo === 'scarico');
-                    }
                 }
 
-                // Need Price Map
+                if (movimenti.length === 0) {
+                    console.warn(`[Report] No movements found for year ${anno}`);
+                    return { anno: anno, consumo: [], totalPezzi: 0, totalSpesa: 0 };
+                }
+
+                // Need Price Map AND Principle Map
                 const farmaciSnapshot = await getCollectionRef('farmaci').get();
                 const priceMap = {};
                 const nameMap = {};
+                const principioMap = {};
+
                 farmaciSnapshot.forEach(doc => {
                     const f = doc.data();
                     const p = parseFloat(f.valoreAcquisto) || 0;
-                    if (f.aic) { priceMap[f.aic] = p; nameMap[f.aic] = f.nome; }
-                    if (f.id) { priceMap[f.id] = p; nameMap[f.id] = f.nome; }
-                    if (f.gtin) { priceMap[f.gtin] = p; nameMap[f.gtin] = f.nome; }
+                    if (f.aic) {
+                        priceMap[f.aic] = p;
+                        nameMap[f.aic] = f.nome;
+                        principioMap[f.aic] = f.principioAttivo;
+                    }
+                    if (f.id) {
+                        priceMap[f.id] = p;
+                        nameMap[f.id] = f.nome;
+                        if (!principioMap[f.id]) principioMap[f.id] = f.principioAttivo;
+                    }
+                    if (f.gtin) {
+                        priceMap[f.gtin] = p;
+                        nameMap[f.gtin] = f.nome;
+                        principioMap[f.gtin] = f.principioAttivo;
+                    }
                 });
 
                 movimenti.forEach(m => {
@@ -1478,6 +2186,7 @@
                             aic: m.aic || '',
                             gtin: m.gtin || '',
                             nome: m.nome || nameMap[key] || 'Sconosciuto',
+                            principioAttivo: m.principio || principioMap[key] || '', // Enrich
                             qty: 0,
                             spesa: 0,
                             prezzoUnitario: priceMap[key] || 0
@@ -1518,7 +2227,7 @@
                 box1.className = "bg-orange-50 p-4 rounded-lg border-l-4 border-orange-500 shadow-sm";
                 box1.querySelector('p:first-child').textContent = 'Pezzi Scaricati';
                 box1.querySelector('p:last-child').textContent = data.totalPezzi;
-                box1.querySelector('p:last-child').id = "stat-pezzi-scaricati"; // New ID for updates
+                // REMOVED: box1.querySelector('p:last-child').id = "stat-pezzi-scaricati"; // Prevent crash on second run
 
                 document.getElementById('stat-spesa-totale').textContent = `€ ${data.totalSpesa.toFixed(2)}`;
                 document.getElementById('stat-farmaci-mov').textContent = data.consumo.length;
@@ -2065,7 +2774,9 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     let giacenzaPre = 0;
                     let giacenzaPost = 0;
 
-                    if (currentLocale === 'Magazzino Farmacia') {
+                    const mainWarehouse = (typeof activeLocales !== 'undefined' && activeLocales.length > 0) ? activeLocales[0] : 'Magazzino Centrale';
+
+                    if (currentLocale === mainWarehouse) {
                         // Global Stock
                         giacenzaPre = Number(f.giacenzaAttuale) || 0;
 
@@ -2315,7 +3026,9 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
 
                         // Async loads - don't await blocking UI
                         loadAllFarmaci();
+                        loadAllFarmaci();
                         loadLocaliSettings();
+                        loadAppConfig(); // NEW: Load Warehouse/Pharmacy Mode
                         loadMovimentiReparto();
                         setupRealtimeListeners();
                         setupUnloadListener();
@@ -2341,7 +3054,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 } else {
                     currentUser = null;
                     userRole = null;
-                    activeLocales = ['Magazzino Farmacia', 'Carrello'];
+                    activeLocales = ['Magazzino Centrale', 'Carrello'];
                     document.getElementById('loginScreen').classList.remove('hidden');
                     document.getElementById('appScreen').classList.add('hidden');
                     document.getElementById('mainSidebar').classList.add('hidden'); // Hide Sidebar
@@ -2359,6 +3072,13 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
             async function getUserRole(uid) {
                 const fetchPromise = async () => {
                     try {
+                        // HARDCODED SUPERADMIN CHECK for bootstrapping
+                        const user = firebase.auth().currentUser;
+                        if (user && user.email === 'chiaramello.qualycare@gmail.com') {
+                            console.log("⚡ Superadmin detected via hardcoded check");
+                            return { role: 'superadmin', pharmacyId: 'superadmin_view' };
+                        }
+
                         const userDoc = await db.collection('users').doc(uid).get();
                         if (userDoc.exists) {
                             const data = userDoc.data();
@@ -2427,6 +3147,39 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 }
             };
 
+
+            window.bootstrapSuperAdmin = async function () {
+                if (!confirm("Vuoi creare/reimpostare l'utente Superadmin?")) return;
+
+                const email = 'chiaramello.qualycare@gmail.com';
+                const password = 'Giopinolo2025!';
+
+                try {
+                    // Try Create
+                    await auth.createUserWithEmailAndPassword(email, password);
+                    alert("✅ Utente creato! Ora prova ad accedere.");
+                } catch (e) {
+                    if (e.code === 'auth/email-already-in-use') {
+                        alert("ℹ️ L'utente esiste già. Prova a reimpostare la password se non accedi, o contattami.");
+                    } else {
+                        alert("❌ Errore creazione: " + e.message);
+                    }
+                }
+
+                // Also ensure DB doc exists (client side write might fail if rules strict, but try)
+                try {
+                    const user = await auth.signInWithEmailAndPassword(email, password);
+                    await db.collection('users').doc(user.user.uid).set({
+                        email: email,
+                        role: 'superadmin',
+                        pharmacyId: 'superadmin_view',
+                        createdAt: new Date()
+                    }, { merge: true });
+                    console.log("✅ DB profile updated via client");
+                } catch (e) {
+                    console.warn("Could not auto-write DB profile (maybe rules block it):", e);
+                }
+            };
 
             window.logout = function () {
                 auth.signOut();
@@ -2633,7 +3386,8 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
 
             window.deleteFarmaco = async function (docId) {
                 // Determine context: Global Delete (Magazzino) vs Locale Removal
-                const isGlobal = currentLocale === 'Magazzino Farmacia';
+                const mainWarehouse = (typeof activeLocales !== 'undefined' && activeLocales.length > 0) ? activeLocales[0] : 'Magazzino Centrale';
+                const isGlobal = currentLocale === mainWarehouse;
 
                 if (isGlobal) {
                     if (!confirm(`SEI SICURO di voler ELIMINARE definitivamente il farmaco/lotto ${docId} dal database?`)) return;
@@ -2685,7 +3439,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
 
                 const headers = firstLine.split(separator).map(h => h.trim().toLowerCase());
 
-                const aicIdx = headers.indexOf('aic');
+                const aicIdx = headers.findIndex(h => h === 'aic' || h === 'codice');
                 const principioIdx = headers.findIndex(h => h.includes('principio'));
                 const nomeIdx = headers.indexOf('nome');
                 const descrIdx = headers.findIndex(h => h.includes('descrizione'));
@@ -2697,7 +3451,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 console.log('Header trovati:', { aicIdx, principioIdx, nomeIdx, dittaIdx, descrIdx, fasciaIdx, gtinIdx });
 
                 if (aicIdx === -1) {
-                    alert('Errore: Manca la colonna AIC nel CSV.');
+                    alert('Errore: Manca la colonna AIC o Codice nel file importato.');
                     return;
                 } if ([aicIdx, principioIdx, nomeIdx].includes(-1)) {
                     throw new Error('Colonne obbligatorie mancanti: AIC, Principio attivo, Nome');
@@ -2778,7 +3532,13 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         document.getElementById('importProgress').classList.remove('hidden');
                         document.getElementById('importResult').classList.add('hidden');
 
-                        const imported = await importCSV(event.target.result);
+                        const data = new Uint8Array(event.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        const csvData = XLSX.utils.sheet_to_csv(worksheet);
+
+                        const imported = await importCSV(csvData);
 
                         document.getElementById('importProgress').classList.add('hidden');
                         document.getElementById('importResult').classList.remove('hidden');
@@ -2801,7 +3561,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         document.getElementById('importResultText').textContent = `✗ Errore: ${error.message}`;
                     }
                 };
-                reader.readAsText(file);
+                reader.readAsArrayBuffer(file);
             };
 
             window.prepareAddFarmaco = function () {
@@ -2838,6 +3598,8 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     const fascia = document.getElementById('addFascia').value.trim();
                     const ditta = document.getElementById('addDitta').value.trim();
                     const scadenza = document.getElementById('addScadenza').value;
+                    const prezzoStr = document.getElementById('addPrezzo') ? document.getElementById('addPrezzo').value.trim() : '';
+                    const prezzo = prezzoStr ? parseFloat(prezzoStr) : 0;
                     // FIX: Capture GTIN
                     const gtin = document.getElementById('addGTIN') ? document.getElementById('addGTIN').value.trim() :
                         null;
@@ -2899,6 +3661,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         ditta: ditta,
                         scadenza: scadenza || null,
                         gtin: gtin && gtin.length > 0 ? gtin : null, // FIX: Save Captured GTIN
+                        valoreAcquisto: prezzo,
                         attivo: true,
                         // Mantieni valori esistenti se aggiornamento, altrimenti 0
                         // Ma qui stiamo facendo "Set" (overwrite) o "Update"?
@@ -2916,7 +3679,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         farmacoData.quantitaReparto = 0;
                         farmacoData.quantitaOrdine = 0;
                         farmacoData.giacenzaMinima = 0;
-                        farmacoData.valoreAcquisto = 0;
+                        farmacoData.valoreAcquisto = prezzo > 0 ? prezzo : 0;
                         farmacoData.createdAt = new Date();
                     } else if (!anyExisting) {
                         // Nuovo assoluto
@@ -2924,7 +3687,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         farmacoData.quantitaReparto = 0;
                         farmacoData.quantitaOrdine = 0;
                         farmacoData.giacenzaMinima = 0;
-                        farmacoData.valoreAcquisto = 0;
+                        farmacoData.valoreAcquisto = prezzo > 0 ? prezzo : 0;
                         farmacoData.createdAt = new Date();
                     }
 
@@ -2955,7 +3718,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     } else {
                         // First run or missing doc (New Pharmacy?): 
                         // RESET to defaults to avoid bleeding data from previous session
-                        activeLocales = ['Magazzino Farmacia', 'Carrello'];
+                        activeLocales = ['Magazzino Centrale', 'Carrello'];
                         await saveLocaliSettings();
                     }
                     renderLocaleSelector();
@@ -2975,7 +3738,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 const selScarico = document.getElementById('unloadLocaleSelector');
                 if (selScarico) {
                     selScarico.innerHTML = activeLocales
-                        .filter(l => l !== 'Magazzino Farmacia')
+                        .filter(l => l !== 'Magazzino Centrale')
                         .map(l => `<option value="${l}" ${l === 'Carrello' ? 'selected' : ''}>${l}</option>`).join('');
                 }
 
@@ -2984,7 +3747,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 if (selSorgente) {
                     // Source can be Magazzino OR any locale with stock
                     selSorgente.innerHTML = activeLocales.map(l =>
-                        `<option value="${l}" ${l === 'Magazzino Farmacia' ? 'selected' : ''}>${l}</option>`
+                        `<option value="${l}" ${l === 'Magazzino Centrale' ? 'selected' : ''}>${l}</option>`
                     ).join('');
                 }
             }
@@ -3008,6 +3771,13 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
             };
 
             function renderFarmaciTable() {
+                const mainWarehouse = (typeof activeLocales !== 'undefined' && activeLocales.length > 0) ? activeLocales[0] : 'Magazzino Centrale';
+                // FAIL-SAFE: Fix legacy name if present in runtime
+                if (currentLocale === 'Magazzino Farmacia' && mainWarehouse !== 'Magazzino Farmacia') {
+                    console.warn("Legacy locale name detected. Fixing...");
+                    currentLocale = mainWarehouse;
+                }
+
                 const table = document.getElementById('farmaci-table');
                 const search = document.getElementById('searchInput').value.toLowerCase();
                 const localeTitle = document.getElementById('localeTitle');
@@ -3019,7 +3789,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 // HEADER UPDATE
                 const headerGiacenza = document.getElementById('headerGiacenza');
                 if (headerGiacenza) {
-                    headerGiacenza.textContent = currentLocale === 'Magazzino Farmacia' ? 'Giac.' : `Giac. (${currentLocale})`;
+                    headerGiacenza.textContent = currentLocale === mainWarehouse ? 'Giac.' : `Giac. (${currentLocale})`;
                 }
 
                 let filtered = allFarmaci.filter(f => {
@@ -3036,7 +3806,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 }
 
                 // LOCALE FILTERING
-                if (currentLocale !== 'Magazzino Farmacia') {
+                if (currentLocale !== mainWarehouse) {
                     // Show items present in this locale (stock defined) OR with Minimum Set
                     // INVENTORY MODE: Show even if stock is 0, provided the key exists (meaning it was tracked here)
                     filtered = filtered.filter(f => {
@@ -3082,7 +3852,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 });
 
                 if (filtered.length === 0) {
-                    table.innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">Nessun farmaco trovato in ' + currentLocale + '</td></tr>';
+                    table.innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">Nessun prodotto trovato in ' + currentLocale + '</td></tr>';
                     return;
                 }
 
@@ -3093,12 +3863,12 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
 
                     // Minimo Locale Logic (Read from Master)
                     let effectiveMin = masterDrug.giacenzaMinima || 0;
-                    if (currentLocale !== 'Magazzino Farmacia') {
+                    if (currentLocale !== mainWarehouse) {
                         effectiveMin = (masterDrug.locali_minimi && masterDrug.locali_minimi[currentLocale]) ? masterDrug.locali_minimi[currentLocale] : 0;
                     }
 
                     // Stock View (Read from specific Batch/Item 'f' because stock is distinct)
-                    const displayStock = currentLocale === 'Magazzino Farmacia' ? f.giacenzaAttuale : (f.locali?.[currentLocale] || 0);
+                    const displayStock = currentLocale === mainWarehouse ? f.giacenzaAttuale : (f.locali?.[currentLocale] || 0);
 
                     // Rosso Logic: "se Giac < Min"
                     const isRosso = displayStock < effectiveMin;
@@ -3123,7 +3893,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     }
 
                     let attCell = '';
-                    if (userRole === 'admin' && currentLocale === 'Magazzino Farmacia') {
+                    if (userRole === 'admin' && currentLocale === mainWarehouse) {
                         attCell = `<td class="px-2 py-2 text-right text-xs font-semibold cursor-pointer hover:bg-blue-200"
                         onclick="window.startInlineEdit(this, '${f.aic}', 'giacenzaAttuale', ${f.giacenzaAttuale})">
                         ${displayStock}</td>`;
@@ -3156,13 +3926,18 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                             ${f.principioAttivo || '-'}</td>
                         <td class="px-2 py-2 text-xs truncate max-w-[6rem]" title="${f.ditta}">${f.ditta || '-'}</td>
                         <td class="px-2 py-2 text-xs truncate" title="${f.descrizione}">${f.descrizione}</td>
-                        <td class="px-2 py-2">
+                        <td class="px-2 py-2 text-right text-xs font-semibold cursor-pointer hover:bg-blue-200"
+                            onclick="window.startInlineEdit(this, '${f.id || f.aic}', 'valoreAcquisto', ${f.valoreAcquisto || 0})">
+                            € ${Number(f.valoreAcquisto || 0).toFixed(2)}
+                        </td>
+                        <td class="px-2 py-2 cursor-pointer hover:bg-blue-100" 
+                            onclick="window.startInlineDateEdit(this, '${f.id}', '${f.scadenza || ''}')">
                             <div class="${scadenzaClass}" title="${scadenzaTitle}">${f.scadenza ?
                             formatDateIT(f.scadenza) : '-'}</div>
                         </td>
                         ${adminCheckbox}
                         ${attCell}
-                        <td class="px-2 py-2 text-right text-xs font-semibold cursor-pointer hover:bg-blue-200"
+                        <td class="px-2 py-2 text-right text-xs font-semibold cursor-pointer hover:bg-blue-200" style="display:none;"
                             onclick="window.startInlineEdit(this, '${f.aic}', 'quantitaReparto', ${f.quantitaReparto})">
                             ${f.quantitaReparto}</td>
                         ${userRole === 'admin' ? `<td
@@ -3174,6 +3949,57 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 }).join('');
             }
 
+            window.startInlineDateEdit = function (cell, docId, value) {
+                if (userRole !== 'admin') return;
+
+                const originalValue = value;
+                const input = document.createElement('input');
+                input.type = 'date';
+                input.value = value; // expects YYYY-MM-DD
+                input.className = 'w-full px-1 py-1 border border-blue-500 rounded text-xs';
+
+                cell.innerHTML = '';
+                cell.appendChild(input);
+                input.focus();
+
+                const saveEdit = async () => {
+                    const newValue = input.value; // YYYY-MM-DD
+                    if (newValue !== originalValue) {
+                        try {
+                            // Update Firestore
+                            await getCollectionRef('farmaci').doc(docId).update({
+                                scadenza: newValue,
+                                lastUpdate: new Date()
+                            });
+
+                            // Update Local State
+                            const target = App.state.allFarmaci.find(f => f.id === docId);
+                            if (target) {
+                                target.scadenza = newValue;
+                                renderFarmaciTable(); // Refresh UI to update status colors
+                            }
+                            App.utils.showNotification('Scadenza aggiornata.', 'success');
+
+                        } catch (error) {
+                            console.error('Errore cambio scadenza:', error);
+                            cell.textContent = originalValue ? formatDateIT(originalValue) : '-';
+                            alert("Errore salvataggio: " + error.message);
+                        }
+                    } else {
+                        // Revert text
+                        cell.textContent = originalValue ? formatDateIT(originalValue) : '-';
+                    }
+                };
+
+                input.addEventListener('blur', saveEdit);
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') saveEdit();
+                    if (e.key === 'Escape') {
+                        cell.textContent = originalValue ? formatDateIT(originalValue) : '-';
+                    }
+                });
+            };
+
             window.startInlineEdit = function (cell, aic, field, value) {
                 if (userRole === 'nurse' && field !== 'quantitaReparto') {
                     alert('Non hai i permessi per modificare questo campo.');
@@ -3184,8 +4010,8 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 const input = document.createElement('input');
                 input.type = 'number';
                 input.min = '0';
-                input.step = '1';
-                input.value = value;
+                input.step = field === 'valoreAcquisto' ? '0.01' : '1';
+                input.value = field === 'valoreAcquisto' ? Number(value || 0).toFixed(2) : value;
                 input.className = 'w-full px-1 py-1 border border-blue-500 rounded text-xs';
 
                 cell.innerHTML = '';
@@ -3194,6 +4020,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 input.select();
 
                 const saveEdit = async () => {
+                    const mainWarehouse = (typeof activeLocales !== 'undefined' && activeLocales.length > 0) ? activeLocales[0] : 'Magazzino Centrale';
                     const newValue = parseFloat(input.value);
                     if (newValue !== originalValue) {
                         try {
@@ -3207,7 +4034,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                             // Or simpler: Always use SET with MERGE to handle both "Create" and "Update"
                             // This solves "No document to update" error automatically.
 
-                            if (field === 'giacenzaMinima' && currentLocale !== 'Magazzino Farmacia') {
+                            if (field === 'giacenzaMinima' && currentLocale !== mainWarehouse) {
                                 // Save to locali_minimi.${currentLocale}
                                 const mergeData = { locali_minimi: { [currentLocale]: newValue } };
                                 await docRef.set(mergeData, { merge: true });
@@ -3225,7 +4052,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                             const updatedDrug = allFarmaci.find(f => f.aic === aic);
                             if (updatedDrug) {
                                 // Manually update local mock to avoid race condition/flicker
-                                if (field === 'giacenzaMinima' && currentLocale !== 'Magazzino Farmacia') {
+                                if (field === 'giacenzaMinima' && currentLocale !== mainWarehouse) {
                                     if (!updatedDrug.locali_minimi) updatedDrug.locali_minimi = {};
                                     updatedDrug.locali_minimi[currentLocale] = newValue;
                                 } else {
@@ -3235,7 +4062,11 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                                 await checkAndCleanupBatch(aic, updatedDrug);
                             }
 
-                            cell.textContent = newValue;
+                            if (field === 'valoreAcquisto') {
+                                cell.textContent = '€ ' + newValue.toFixed(2);
+                            } else {
+                                cell.textContent = newValue;
+                            }
                         } catch (error) {
                             console.error('Errore nel salvataggio:', error);
                             cell.textContent = originalValue;
@@ -3286,12 +4117,12 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     document.getElementById('loadQty').value = 1;
                     document.getElementById('manualExpiryInput').value = '';
 
-                    let aic = null, scadenza = null, gtin = null;
+                    let aic = null, scadenza = null, gtin = null, lotto = null;
 
                     // 1. Unify Identification (Matrix or Advanced)
                     const matrixResult = App.scanner.parseDataMatrix(rawInput);
                     if (matrixResult) {
-                        ({ aic, scadenza, gtin } = matrixResult);
+                        ({ aic, scadenza, gtin, lotto } = matrixResult);
                     } else {
                         // Fallback/Advanced
                         const advanced = App.scanner.tryAdvancedSearch(rawInput);
@@ -3333,7 +4164,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                                     actionDiv.className = 'mt-3 text-center';
                                     notFoundContainer.appendChild(actionDiv);
                                 }
-                                actionDiv.innerHTML = `<button onclick="window.prepareAddFarmacoFromScarico('${prefillAIC}', '${prefillGTIN}')" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 font-bold">➕ Aggiungi Farmaco</button>`;
+                                actionDiv.innerHTML = `<button onclick="window.prepareAddFarmaco()" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 font-bold">➕ Aggiungi Farmaco</button>`;
                             }, 50);
                             return;
                         }
@@ -3376,6 +4207,8 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                             scannedDrug = { ...selectedBatch };
                             // If we had a scanned GTIN, preserve it
                             if (gtin) scannedDrug.scannedGtin = gtin;
+                            if (lotto) scannedDrug.scannedLotto = lotto;
+                            if (scadenza) scannedDrug.scannedScadenza = scadenza;
                             setupFoundDrugCard(scannedDrug, false); // Not a new batch, selected existing
                         });
                         return;
@@ -3387,6 +4220,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         // Exact Match Found (Unique)
                         scannedDrug = { ...exactMatch };
                         if (gtin) scannedDrug.scannedGtin = gtin;
+                        if (lotto) scannedDrug.scannedLotto = lotto;
                         setupFoundDrugCard(scannedDrug, false);
                     } else if (drugBase) {
                         // Known drug, but probably new batch.
@@ -3395,6 +4229,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         scannedDrug.isNewBatch = true;
                         if (scadenza) scannedDrug.newScadenza = scadenza;
                         if (gtin) scannedDrug.newGtin = gtin;
+                        if (lotto) scannedDrug.newLotto = lotto;
 
                         // Reset dynamic fields for new batch
                         scannedDrug.quantitaOrdine = 0;
@@ -3448,8 +4283,29 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     document.getElementById('foundDrugGTINContainer').classList.add('hidden');
                 }
 
+                // SHOW LOTTO
+                const displayLotto = drug.newLotto || drug.scannedLotto || drug.lotto;
+                let lottoContainer = document.getElementById('foundDrugLottoContainer');
+                if (!lottoContainer) {
+                    // Create on the fly if missing (Backward compat)
+                    // Insert after GTIN container
+                    const gtinCont = document.getElementById('foundDrugGTINContainer');
+                    lottoContainer = document.createElement('span');
+                    lottoContainer.id = 'foundDrugLottoContainer';
+                    lottoContainer.className = 'hidden bg-yellow-50 px-2 py-1 rounded border border-yellow-200 text-yellow-800 font-mono ml-2';
+                    gtinCont.parentNode.insertBefore(lottoContainer, gtinCont.nextSibling);
+                }
+
+                if (displayLotto) {
+                    lottoContainer.innerHTML = `Lotto: <b id="foundDrugLotto">${displayLotto}</b>`;
+                    lottoContainer.classList.remove('hidden');
+                } else {
+                    lottoContainer.classList.add('hidden');
+                }
+
                 // Show Expiry Info + Init Manual Input
-                const displayScadenza = isNewBatch ? drug.newScadenza : drug.scadenza;
+                // FIX: Priority to Scanned/New Expiry even if existing batch selected (User wants to apply scanned date)
+                const displayScadenza = drug.scannedScadenza || (isNewBatch ? drug.newScadenza : drug.scadenza);
                 const manualInput = document.getElementById('manualExpiryInput');
 
                 if (displayScadenza) {
@@ -3522,6 +4378,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     // Strict logic: Use manual input if present, otherwise scanned
                     const finalScadenza = manualExpiryDate || (scannedDrug.isNewBatch ? scannedDrug.newScadenza : scannedDrug.scadenza);
                     const finalGtin = scannedDrug.newGtin || scannedDrug.scannedGtin || scannedDrug.gtin || null;
+                    const finalLotto = scannedDrug.newLotto || scannedDrug.scannedLotto || scannedDrug.lotto || null;
                     const finalAic = scannedDrug.aic;
 
                     // CHECK FOR EXISTING BATCH TO MERGE
@@ -3560,6 +4417,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         };
 
                         if (!bestExistingMatch.gtin && finalGtin) updateData.gtin = finalGtin;
+                        if (!bestExistingMatch.lotto && finalLotto) updateData.lotto = finalLotto;
 
                         await getCollectionRef('farmaci').doc(docId).update(updateData);
                         showScanFeedback(`✅ Aggiornato ${bestExistingMatch.nome} (Lotto esistente): +${qtyToAdd}`, 'success');
@@ -3596,6 +4454,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                             id: newId,
                             scadenza: safeScadenza || null, // FIX: Ensure it's not undefined
                             gtin: finalGtin || scannedDrug.gtin || null,
+                            lotto: finalLotto || null,
                             quantitaOrdine: 0,
                             qtà: 0,
                             giacenzaAttuale: qtyToAdd,
@@ -3645,7 +4504,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                                 nome: scannedDrug.nome,
                                 quantita: qtyToAdd,
                                 tipo: 'carico',
-                                destinazione: 'Magazzino Farmacia',
+                                destinazione: (typeof activeLocales !== 'undefined' && activeLocales.length > 0) ? activeLocales[0] : 'Magazzino Centrale',
                                 locale: 'Fornitore', // Source
                                 gtin: finalGtin, // Use finalGtin potentially resolved above
                                 user: currentUser ? currentUser.email : 'unknown',
@@ -3886,10 +4745,11 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
 
             window.updateUnloadSourceStock = function () {
                 if (!scannedDrugScarico) return;
-                const sourceLocale = document.getElementById('unloadSourceSelector')?.value || 'Magazzino Farmacia';
+                const mainWarehouse = (typeof activeLocales !== 'undefined' && activeLocales.length > 0) ? activeLocales[0] : 'Magazzino Centrale';
+                const sourceLocale = document.getElementById('unloadSourceSelector')?.value || mainWarehouse;
                 let displayQty = 0;
 
-                if (sourceLocale === 'Magazzino Farmacia') {
+                if (sourceLocale === mainWarehouse) {
                     displayQty = scannedDrugScarico.giacenzaAttuale || 0;
                 } else {
                     displayQty = (scannedDrugScarico.locali && scannedDrugScarico.locali[sourceLocale]) || 0;
@@ -3900,7 +4760,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     // Check if multiple batches situation applies?
                     // Logic used previously:
                     const allBatches = allFarmaci.filter(f => f.aic === scannedDrugScarico.aic);
-                    if (allBatches.length > 1 && sourceLocale === 'Magazzino Farmacia') {
+                    if (allBatches.length > 1 && sourceLocale === mainWarehouse) {
                         // Only show bold if multiple batches AND viewing Magazzino (where batches matter heavily)
                         // Actually user requested NO "Tot. x". Just show current batch/drug stock.
                         // But if we switch to a Locale, "locali" is usually aggregated per AIC?
@@ -3984,8 +4844,9 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     return;
                 }
 
+                const mainWarehouse = (typeof activeLocales !== 'undefined' && activeLocales.length > 0) ? activeLocales[0] : 'Magazzino Centrale';
                 const destLocale = document.getElementById('unloadLocaleSelector')?.value;
-                const sourceLocale = document.getElementById('unloadSourceSelector')?.value || 'Magazzino Farmacia';
+                const sourceLocale = document.getElementById('unloadSourceSelector')?.value || mainWarehouse;
 
                 if (!destLocale) {
                     alert("Selezionare una destinazione.");
@@ -4015,7 +4876,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
 
                     // BLOCKING CHECK: Verify Stock > 0 in Source
                     let sourceStock = 0;
-                    if (sourceLocale === 'Magazzino Farmacia') {
+                    if (sourceLocale === mainWarehouse) {
                         sourceStock = Number(currentData.giacenzaAttuale || 0);
                     } else {
                         sourceStock = Number(currentLocali[sourceLocale] || 0);
@@ -4044,7 +4905,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
 
                     // 1. DECREMENT SOURCE
                     let newSourceVal;
-                    if (sourceLocale === 'Magazzino Farmacia') {
+                    if (sourceLocale === mainWarehouse) {
                         const oldGiac = Number(currentData.giacenzaAttuale || 0);
                         newSourceVal = oldGiac - qtyToUnload;
                         updateData.giacenzaAttuale = newSourceVal;
@@ -4059,7 +4920,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     // 2. INCREMENT DESTINATION
                     let newDestVal;
                     if (destLocale !== 'Carrello') {
-                        if (destLocale === 'Magazzino Farmacia') {
+                        if (destLocale === mainWarehouse) {
                             const currentPendingGiac = updateData.giacenzaAttuale !== undefined ? updateData.giacenzaAttuale : (currentData.giacenzaAttuale || 0);
                             newDestVal = currentPendingGiac + qtyToUnload;
                             updateData.giacenzaAttuale = newDestVal;
@@ -4128,7 +4989,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         // "se in magazzino farmacia un lotto arriva a giacenza 0 ed è presente un lotto con giacenza >=1 con stesso aic, allora il lotto che arriva a 0 viene eliminato dal database"
 
                         // Check if we unloaded FROM Magazzino (and it reached 0)
-                        if (sourceLocale === 'Magazzino Farmacia' && updateData.giacenzaAttuale !== undefined && updateData.giacenzaAttuale <= 0) {
+                        if (sourceLocale === mainWarehouse && updateData.giacenzaAttuale !== undefined && updateData.giacenzaAttuale <= 0) {
 
                             // Find Other Batches for same AIC with Stock > 0
                             const parentAIC = scannedDrugScarico.parentAIC || scannedDrugScarico.aic;
@@ -4217,7 +5078,8 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         // If 'locali' has keys with values (even 0), we keep it so it shows up in that locale's list.
                         // We only clean up "Pure Warehouse" items or items where we are sure we want to remove history.
                         // Current rule: "il prodotto deve rimanere per... inventario anche nei locali"
-                        const hasLocaleHistory = data.locali && Object.keys(data.locali).some(k => k !== 'Magazzino Farmacia');
+                        const mainWarehouse = (typeof activeLocales !== 'undefined' && activeLocales.length > 0) ? activeLocales[0] : 'Magazzino Centrale';
+                        const hasLocaleHistory = data.locali && Object.keys(data.locali).some(k => k !== mainWarehouse);
 
                         if (duplicateExists && !hasLocaleHistory) {
                             console.log(`🧹 Batch ${id} esaurito (${residuo}). Trovato duplicato > 0 e nessun vincolo locale. Eliminazione.`);
@@ -4395,7 +5257,8 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
 
                         // Resolve Minimum for Current Locale (Use LOGIC SOURCE)
                         let effectiveMin = logicSource.giacenzaMinima || 0;
-                        if (currentLocale !== 'Magazzino Farmacia') {
+                        const mainWarehouse = (typeof activeLocales !== 'undefined' && activeLocales.length > 0) ? activeLocales[0] : 'Magazzino Centrale';
+                        if (currentLocale !== mainWarehouse) {
                             effectiveMin = (logicSource.locali_minimi && logicSource.locali_minimi[currentLocale]) ? Number(logicSource.locali_minimi[currentLocale]) : 0;
                         }
 
@@ -4413,7 +5276,8 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     }
 
                     // Accumulate Stock for Current Locale
-                    const stock = currentLocale === 'Magazzino Farmacia' ? (Number(f.giacenzaAttuale) || 0) : (Number(f.locali?.[currentLocale]) || 0);
+                    const mainWarehouseForOrder = (typeof activeLocales !== 'undefined' && activeLocales.length > 0) ? activeLocales[0] : 'Magazzino Centrale';
+                    const stock = currentLocale === mainWarehouseForOrder ? (Number(f.giacenzaAttuale) || 0) : (Number(f.locali?.[currentLocale]) || 0);
                     productMap[masterId].currentStock += stock;
                 });
 
@@ -4447,7 +5311,8 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 const rows = ordiniAttuali
                     .map(f => {
                         return `<tr>
-                            <td class="px-2 py-2 text-xs font-mono print-hidden">${f.aic}</td>
+                            <td class="px-2 py-2 text-xs font-mono">${f.gtin || '-'}</td>
+                            <td class="px-2 py-2 text-xs font-mono">${f.aic}</td>
                             <td class="px-2 py-2 text-xs font-semibold truncate">${f.nome}</td>
                             <td class="px-2 py-2 text-xs truncate">${f.principioAttivo || '-'}</td>
                             <td class="px-2 py-2 text-xs truncate">${f.descrizione || '-'}</td>
@@ -4548,9 +5413,675 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
             }
             // Init Locali
             loadLocaliSettings();
+            loadAnniDisponibili();
+
+
+            // ============ BOLLA / GEMINI LOGIC ============
+
+            // Drag & Drop
+            const dropZone = document.getElementById('dropZone');
+            if (dropZone) {
+                dropZone.addEventListener('click', () => document.getElementById('bollaFileInput').click());
+                dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('bg-blue-100'); });
+                dropZone.addEventListener('dragleave', () => dropZone.classList.remove('bg-blue-100'));
+                dropZone.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    dropZone.classList.remove('bg-blue-100');
+                    if (e.dataTransfer.files.length) window.handleBollaFiles(e.dataTransfer.files);
+                });
+            }
+
+            window.handleBollaFiles = async function (files) {
+                if (files.length === 0) return;
+                const file = files[0];
+
+                // Show Loading
+                document.getElementById('dropZone').classList.add('hidden');
+                document.getElementById('bollaLoading').classList.remove('hidden');
+                document.getElementById('bollaResults').classList.add('hidden');
+
+                try {
+                    const base64 = await readFileAsBase64(file);
+                    const products = await callAnalyzeBollaFunction(base64, file.type);
+                    renderBollaResults(products);
+                } catch (error) {
+                    console.error("Errore analisi bolla:", error);
+                    alert("Errore durante l'analisi della bolla: " + error.message);
+                    // Reset UI
+                    document.getElementById('bollaLoading').classList.add('hidden');
+                    document.getElementById('dropZone').classList.remove('hidden');
+                }
+            };
+
+            function readFileAsBase64(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result.split(',')[1]);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(file);
+                });
+            }
+
+            async function callAnalyzeBollaFunction(base64Data, mimeType) {
+                // Call Cloud Function
+                const analyzeBolla = functions.httpsCallable('analyzeBolla');
+                const result = await analyzeBolla({ base64Data, mimeType });
+                return result.data.products;
+            }
+
+            let currentBollaItems = [];
+
+            function renderBollaResults(products) {
+                currentBollaItems = products;
+                const tbody = document.getElementById('bollaTableBody');
+                tbody.innerHTML = '';
+
+                if (!products || products.length === 0) {
+                    alert("Nessun prodotto trovato nella bolla.");
+                    window.clearBollaTable();
+                    return;
+                }
+
+                document.getElementById('bollaLoading').classList.add('hidden');
+                document.getElementById('bollaResults').classList.remove('hidden');
+
+                products.forEach((p, index) => {
+                    // Try to match with DB
+                    const matched = App.scanner.tryAdvancedSearch(p.code) || {};
+                    const isKnown = !!matched.drug;
+
+                    const row = document.createElement('tr');
+                    row.className = "hover:bg-gray-50 transition border-b border-gray-100 align-middle";
+
+                    // Status Badge
+                    const statusBadge = isKnown
+                        ? `<span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full font-bold">Trovato</span>`
+                        : `<span class="bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded-full font-bold">Nuovo</span>`;
+
+                    row.innerHTML = `
+        <td class="p-2"><input type="number" class="w-16 p-1 border rounded text-center" value="${p.qty}"
+                onchange="currentBollaItems[${index}].qty = this.value"></td>
+        <td class="p-2"><input type="text" class="w-full p-1 border rounded" value="${p.name}"
+                onchange="currentBollaItems[${index}].name = this.value"></td>
+        <td class="p-2"><input type="text" class="w-full p-1 border rounded" value="${p.activeIngredient || ''}" placeholder="Principio"
+                onchange="currentBollaItems[${index}].activeIngredient = this.value"></td>
+        <td class="p-2"><input type="text" class="w-full p-1 border rounded" value="${p.company || ''}" placeholder="Ditta"
+                onchange="currentBollaItems[${index}].company = this.value"></td>
+        <td class="p-2"><input type="text" class="w-32 p-1 border rounded font-mono text-blue-600" value="${p.code}"
+                onchange="currentBollaItems[${index}].code = this.value"></td>
+        <td class="p-2"><input type="text" class="w-24 p-1 border rounded font-mono text-green-600 placeholder-gray-300"
+                value="${p.expiry || ''}" placeholder="GG/MM/AA"
+                onchange="currentBollaItems[${index}].expiry = this.value"></td>
+        <td class="p-2"><input type="text" class="w-24 p-1 border rounded font-mono text-purple-600"
+                value="${p.lot || ''}" placeholder="Lotto" onchange="currentBollaItems[${index}].lot = this.value"></td>
+        <td class="p-2 text-center">${statusBadge}</td>
+        <td class="p-2 text-right">
+            <button onclick="window.removeBollaItem(${index})" class="text-red-400 hover:text-red-600">❌</button>
+        </td>
+        `;
+                    tbody.appendChild(row);
+                });
+            }
+
+            // ============ SCARICO DA ORDINE (IA) ============
+
+            let ordineItems = [];
+
+            // Setup Listeners for Drag & Drop (delayed to ensure DOM is ready)
+            setTimeout(() => {
+                const dropZone = document.getElementById('dropZoneOrdine');
+                if (dropZone) {
+                    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                        dropZone.addEventListener(eventName, preventDefaults, false);
+                    });
+
+                    function preventDefaults(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }
+
+                    ['dragenter', 'dragover'].forEach(eventName => {
+                        dropZone.addEventListener(eventName, highlight, false);
+                    });
+
+                    ['dragleave', 'drop'].forEach(eventName => {
+                        dropZone.addEventListener(eventName, unhighlight, false);
+                    });
+
+                    function highlight(e) {
+                        dropZone.classList.add('bg-red-50', 'border-red-500');
+                    }
+
+                    function unhighlight(e) {
+                        dropZone.classList.remove('bg-red-50', 'border-red-500');
+                    }
+
+                    dropZone.addEventListener('drop', handleDrop, false);
+
+                    function handleDrop(e) {
+                        const dt = e.dataTransfer;
+                        const files = dt.files;
+                        window.handleOrderFiles(files);
+                    }
+                }
+            }, 2000);
+
+            window.populateOrdineLocales = function () {
+                const sourceSel = document.getElementById('ordineSourceLocale');
+                const destSel = document.getElementById('ordineDestLocale');
+
+                if (!sourceSel || !destSel) return;
+
+                // Save current selection if possible
+                const currentSource = sourceSel.value;
+                const currentDest = destSel.value;
+
+                // Clear
+                sourceSel.innerHTML = '';
+                destSel.innerHTML = '';
+
+                // Populate
+                // Use activeLocales global or fallback
+                const locales = (typeof activeLocales !== 'undefined' && activeLocales.length > 0)
+                    ? activeLocales
+                    : ['Magazzino Centrale', 'Reparto', 'Esterno/Vendita', 'Carrello'];
+
+                locales.forEach(loc => {
+                    sourceSel.innerHTML += `<option value="${loc}">${loc}</option>`;
+                    destSel.innerHTML += `<option value="${loc}">${loc}</option>`;
+                });
+
+                const mainWarehouse = locales[0] || 'Magazzino Centrale';
+
+                // Restore or Set Defaults
+                if (currentSource && locales.includes(currentSource)) {
+                    sourceSel.value = currentSource;
+                } else if (locales.includes(mainWarehouse)) {
+                    sourceSel.value = mainWarehouse;
+                }
+
+                if (currentDest && locales.includes(currentDest)) {
+                    destSel.value = currentDest;
+                } else if (locales.includes('Esterno/Vendita')) {
+                    destSel.value = 'Esterno/Vendita';
+                } else if (locales.includes('Reparto')) {
+                    destSel.value = 'Reparto';
+                }
+            };
+
+            window.handleOrderFiles = async function (files) {
+                if (!files || files.length === 0) return;
+                const file = files[0];
+
+                // Show Loading
+                document.getElementById('dropZoneOrdine').classList.add('hidden');
+                document.getElementById('ordineLoading').classList.remove('hidden');
+                document.getElementById('ordineResults').classList.add('hidden');
+
+                try {
+                    const base64 = await readFileAsBase64(file);
+                    const mimeType = file.type;
+
+                    const analyzeFn = functions.httpsCallable('analyzeOrdine');
+                    const result = await analyzeFn({ base64Data: base64, mimeType: mimeType });
+                    const rawProducts = result.data.products; // [{qty, name, code}]
+
+                    // Match with Stock
+                    ordineItems = window.matchOrderWithStock(rawProducts);
+
+                    renderOrdineTable();
+
+                    document.getElementById('ordineLoading').classList.add('hidden');
+                    document.getElementById('ordineResults').classList.remove('hidden');
+
+                } catch (error) {
+                    console.error("Errore analisi ordine:", error);
+                    if (error.message.includes('429') || error.message.toLowerCase().includes('quota')) {
+                        alert("⚠️ Il sistema è momentaneamente occupato (Limite Traffico API).\n\nPer favore attendi circa 1 minuto e riprova.");
+                    } else {
+                        alert("Errore durante l'analisi: " + error.message);
+                    }
+                    window.clearOrdineTable(); // Optional: keeps the file selected? No, clears table.
+                    document.getElementById('ordineLoading').classList.add('hidden');
+                    document.getElementById('dropZoneOrdine').classList.remove('hidden');
+                }
+            };
+
+
+            window.matchOrderWithStock = function (rawItems) {
+                const mainWarehouse = (typeof activeLocales !== 'undefined' && activeLocales.length > 0) ? activeLocales[0] : 'Magazzino Centrale';
+                const sourceLocale = document.getElementById('ordineSourceLocale').value || mainWarehouse;
+
+                return rawItems.map(item => {
+                    const searchCode = item.code ? item.code.replace(/\D/g, '') : '';
+                    const searchName = item.name ? item.name.toLowerCase() : '';
+                    const neededQty = parseInt(item.qty) || 0;
+
+                    // 1. Find Candidate Batches
+                    // Look for matches by AIC, GTIN or Name
+                    let candidates = allFarmaci.filter(f => {
+                        // Avoid strict falsy check for omitted 'attivo' properties
+                        if (f.attivo === false) return false;
+
+                        // Use safe strings for comparison
+                        const dbAic = f.aic ? String(f.aic).trim() : '';
+                        const dbGtin = f.gtin ? String(f.gtin).trim() : '';
+
+                        // Direct check
+                        if (searchCode && (dbAic === searchCode || dbGtin === searchCode)) return true;
+
+                        // Clean leading zeros for strict numeric value matching
+                        if (searchCode) {
+                            const cleanSearch = searchCode.replace(/^0+/, '');
+                            const cleanAic = dbAic.replace(/^0+/, '');
+                            const cleanGtin = dbGtin.replace(/^0+/, '');
+
+                            if (cleanSearch && (cleanSearch === cleanAic || cleanSearch === cleanGtin)) return true;
+                        }
+
+                        // Try 9-digit padding for AIC (e.g. 123 -> 000000123)
+                        if (searchCode && searchCode.length < 9) {
+                            const padded = searchCode.padStart(9, '0');
+                            if (dbAic === padded || dbGtin === padded) return true;
+                        }
+
+                        // Name substring matching (bidirectional and partial word)
+                        if (searchName && f.nome) {
+                            const dbName = String(f.nome).toLowerCase();
+                            // If Gemini name is inside DB name
+                            if (dbName.includes(searchName)) return true;
+                            // If DB name is inside Gemini name (e.g DB is "AULIN" and Gemini is "AULIN BUSTINE")
+                            if (searchName.includes(dbName) && dbName.length > 3) return true;
+
+                            // Splitting search words and trying to match significant words
+                            const words = searchName.split(/[\s,.-]+/).filter(w => w.length > 4);
+                            for (let w of words) {
+                                if (dbName.includes(w)) return true;
+                            }
+                        }
+
+                        return false;
+                    });
+
+                    if (candidates.length === 0) {
+                        console.warn(`No match found for: ${item.name} (Code: ${searchCode})`);
+                    }
+
+
+                    // 2. Filter for Stock > 0 in Selected Locale
+                    candidates = candidates.filter(f => {
+                        let stock = 0;
+                        if (sourceLocale === mainWarehouse) {
+                            stock = f.giacenzaAttuale || 0;
+                        } else {
+                            stock = (f.locali && f.locali[sourceLocale]) ? f.locali[sourceLocale] : 0;
+                        }
+                        return stock > 0;
+                    });
+
+                    // 3. Sort by Scadenza (Ascending) -> Nearest Expiry First
+                    candidates.sort((a, b) => {
+                        if (!a.scadenza) return 1;
+                        if (!b.scadenza) return -1;
+                        return new Date(a.scadenza) - new Date(b.scadenza);
+                    });
+
+                    // 4. Allocate Logic
+                    let remaining = neededQty;
+                    let allocation = [];
+                    let status = 'ok'; // ok, partial, missing
+
+                    for (const batch of candidates) {
+                        if (remaining <= 0) break;
+
+                        let stock = 0;
+                        if (sourceLocale === mainWarehouse) {
+                            stock = batch.giacenzaAttuale || 0;
+                        } else {
+                            stock = (batch.locali && batch.locali[sourceLocale]) ? batch.locali[sourceLocale] : 0;
+                        }
+
+                        const take = Math.min(stock, remaining);
+                        allocation.push({
+                            batchId: batch.id,
+                            aic: batch.aic, // important for logging
+                            gtin: batch.gtin,
+                            nome: batch.nome,
+                            scadenza: batch.scadenza,
+                            lotto: batch.lotto,
+                            take: take
+                        });
+                        remaining -= take;
+                    }
+
+                    if (remaining > 0) {
+                        status = (remaining === neededQty) ? 'missing' : 'partial';
+                    } else if (candidates.length === 0) {
+                        status = 'missing';
+                    }
+
+                    return {
+                        raw: item,
+                        allocation: allocation,
+                        missingQty: remaining,
+                        status: status
+                    };
+                });
+            };
+            window.removeBollaItem = function (index) {
+                currentBollaItems.splice(index, 1);
+                renderBollaResults(currentBollaItems); // Re-render
+            };
+
+            window.clearBollaTable = function () {
+                currentBollaItems = [];
+                document.getElementById('bollaResults').classList.add('hidden');
+                document.getElementById('dropZone').classList.remove('hidden');
+                document.getElementById('bollaFileInput').value = '';
+            };
+
+            window.importAllBollaItems = async function () {
+                if (!confirm(`Confermi il caricamento di ${currentBollaItems.length} prodotti in magazzino?`)) return;
+
+                let successCount = 0;
+                let failCount = 0;
+
+                // Show progress?
+                const btn = document.querySelector('button[onclick="window.importAllBollaItems()"]');
+                const originalText = btn.textContent;
+                btn.textContent = "Caricamento in corso...";
+                btn.disabled = true;
+
+                for (const item of currentBollaItems) {
+                    try {
+                        const loadingDate = new Date().toISOString().split('T')[0];
+                        const cleanCode = item.code.replace(/\D/g, '');
+
+                        // Parse Date
+                        let expiryDate = null;
+                        if (item.expiry) {
+                            const parsed = App.utils.parseFlexibleDate(item.expiry);
+                            if (parsed) expiryDate = parsed;
+                        }
+
+                        const docId = item.lot ? `${cleanCode}_${item.lot.replace(/[^A-Za-z0-9]/g, '')}` : cleanCode;
+
+                        const docRef = getCollectionRef('farmaci').doc(docId);
+                        const docSnap = await docRef.get();
+
+                        if (docSnap.exists) {
+                            // Update
+                            await docRef.update({
+                                giacenzaAttuale: firebase.firestore.FieldValue.increment(Number(item.qty)),
+                                lastLoaded: loadingDate
+                            });
+                        } else {
+                            // Create New
+                            let metadata = {
+                                descrizione: "Caricato da Bolla",
+                                principioAttivo: item.activeIngredient || "",
+                                ditta: item.company || "",
+                                inFascia: "",
+                                giacenzaMinima: 5
+                            };
+
+                            // Try to find metadata from Master AIC
+                            const masterDoc = await getCollectionRef('farmaci').doc(cleanCode).get();
+                            if (masterDoc.exists) {
+                                const m = masterDoc.data();
+                                metadata = {
+                                    descrizione: m.descrizione || "",
+                                    principioAttivo: m.principioAttivo || "",
+                                    ditta: m.ditta || "",
+                                    inFascia: m.inFascia || "",
+                                    giacenzaMinima: m.giacenzaMinima || 5
+                                };
+                            }
+
+                            await docRef.set({
+                                id: docId,
+                                aic: cleanCode,
+                                nome: item.name,
+                                ...metadata,
+                                lotto: item.lot || '',
+                                scadenza: expiryDate || '', // ISO YYYY-MM-DD
+                                giacenzaAttuale: Number(item.qty),
+                                quantitaOrdine: 0,
+                                attivo: true,
+                                dataCaricamento: loadingDate,
+                                valoreAcquisto: 0 // We don't have price from OCR yet usually
+                            });
+                        }
+
+                        successCount++;
+
+                    } catch (e) {
+                        console.error("Error importing item:", item, e);
+                        failCount++;
+                    }
+                }
+
+                alert(`Caricamento completato!\n✅ Successi: ${successCount}\n❌ Errori: ${failCount}`);
+                btn.textContent = originalText;
+                btn.disabled = false;
+                window.clearBollaTable();
+
+                // Refresh data
+                if (window.aggiornaElencoReparto) window.aggiornaElencoReparto();
+            };
+
+            window.clearOrdineTable = function () {
+                ordineItems = [];
+                document.getElementById('ordineTableBody').innerHTML = '';
+                document.getElementById('ordineResults').classList.add('hidden');
+                document.getElementById('dropZoneOrdine').classList.remove('hidden');
+                document.getElementById('ordineFileInput').value = '';
+            };
+
+            window.updateOrdineQty = function (index, newVal) {
+                const qty = parseInt(newVal);
+                if (isNaN(qty) || qty <= 0) {
+                    alert("Quantità non valida");
+                    renderOrdineTable(); // Reset to old val
+                    return;
+                }
+
+                // Update Raw Item
+                ordineItems[index].raw.qty = qty;
+
+                // Re-run Match Logic for THIS item only (to recalculate allocation)
+                const reMatched = window.matchOrderWithStock([ordineItems[index].raw]);
+
+                // Update the item in the list
+                ordineItems[index] = reMatched[0];
+
+                // Re-render
+                renderOrdineTable();
+            };
+
+            window.renderOrdineTable = function () {
+                const tbody = document.getElementById('ordineTableBody');
+                tbody.innerHTML = '';
+
+                if (ordineItems.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-gray-500">Nessun prodotto da scaricare.</td></tr>';
+                    return;
+                }
+
+                ordineItems.forEach((item, index) => {
+                    const row = document.createElement('tr');
+
+                    let statusBadge = '';
+                    let rowClass = 'hover:bg-gray-50 border-b border-gray-100 align-middle';
+
+                    if (item.status === 'ok') {
+                        statusBadge = '<span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full font-bold">Pronto</span>';
+                    } else if (item.status === 'partial') {
+                        statusBadge = '<span class="bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded-full font-bold">Parziale</span>';
+                        rowClass += ' bg-yellow-50';
+                    } else {
+                        statusBadge = '<span class="bg-red-100 text-red-800 text-xs px-2 py-1 rounded-full font-bold">Non Trovato/Esaurito</span>';
+                        rowClass += ' bg-red-50';
+                    }
+
+                    // Allocation Details
+                    let allocationHtml = '';
+                    if (item.allocation.length > 0) {
+                        allocationHtml = item.allocation.map(a =>
+                            `<div class="text-xs text-gray-600 mb-1">
+                                <span class="font-bold border border-gray-300 rounded px-1">${a.take}</span> da Lotto <span class="font-mono text-blue-600">${a.lotto || 'N/D'}</span> 
+                                <span class="text-gray-400 text-[10px] ml-1">(Scad: ${a.scadenza ? App.utils.formatDateIT(a.scadenza) : 'N/D'})</span>
+                             </div>`
+                        ).join('');
+                    } else {
+                        allocationHtml = '<span class="text-xs text-red-400 italic">Nessun lotto disponibile</span>';
+                    }
+
+                    row.className = rowClass;
+                    row.innerHTML = `
+                        <td class="p-3 text-center">
+                            <input type="number" min="1" class="w-16 p-1 border rounded text-center font-bold text-lg text-gray-700" 
+                                value="${item.raw.qty}" 
+                                onchange="window.updateOrdineQty(${index}, this.value)">
+                        </td>
+                        <td class="p-3">
+                            <div class="font-semibold text-gray-800">${item.raw.name}</div>
+                            ${item.raw.code ? `<div class="text-xs text-gray-500 font-mono">Code: ${item.raw.code}</div>` : ''}
+                        </td>
+                        <td class="p-3 font-mono text-xs text-gray-500">
+                             ${item.allocation.length > 0 ? (item.allocation[0].aic || '-') : '-'}
+                        </td>
+                        <td class="p-3">
+                            ${allocationHtml}
+                        </td>
+                        <td class="p-3 text-center">${statusBadge}</td>
+                        <td class="p-3 text-right">
+                             <button onclick="window.removeOrdineItem(${index})" class="text-red-400 hover:text-red-600 font-bold px-2 text-xl" title="Rimuovi Riga">&times;</button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            };
+
+            window.removeOrdineItem = function (index) {
+                ordineItems.splice(index, 1);
+                renderOrdineTable();
+            };
+
+            window.executeOrderUnload = async function () {
+                if (ordineItems.length === 0) return;
+
+                const actionable = ordineItems.filter(i => i.allocation.length > 0);
+                if (actionable.length === 0) {
+                    alert("Nessun articolo può essere scaricato (stock insufficiente o prodotti non trovati).");
+                    return;
+                }
+
+                if (!confirm(`Confermi lo scarico di ${actionable.length} righe ordine?`)) return;
+
+                const mainWarehouse = (typeof activeLocales !== 'undefined' && activeLocales.length > 0) ? activeLocales[0] : 'Magazzino Centrale';
+                const sourceLocale = document.getElementById('ordineSourceLocale').value || mainWarehouse;
+                const destLocale = document.getElementById('ordineDestLocale').value;
+
+                let successCount = 0;
+                let failCount = 0;
+
+                try {
+                    // Show Loading State
+                    const btn = document.querySelector('button[onclick="window.executeOrderUnload()"]');
+                    const oldText = btn.innerHTML;
+                    btn.innerHTML = '⏳ Elaborazione...';
+                    btn.disabled = true;
+
+                    for (const item of actionable) {
+                        for (const alloc of item.allocation) {
+                            const docRef = getCollectionRef('farmaci').doc(alloc.batchId);
+
+                            try {
+                                await db.runTransaction(async (t) => {
+                                    const doc = await t.get(docRef);
+                                    if (!doc.exists) throw new Error("Batch not found (deleted?)");
+
+                                    const data = doc.data();
+                                    const currentLocals = data.locali || {};
+
+                                    // Check Source Transact
+                                    let currentSource = 0;
+                                    if (sourceLocale === mainWarehouse) {
+                                        currentSource = Number(data.giacenzaAttuale || 0);
+                                    } else {
+                                        currentSource = Number(currentLocals[sourceLocale] || 0);
+                                    }
+
+                                    if (currentSource < alloc.take) {
+                                        throw new Error(`Giacenza insufficiente live (${currentSource} < ${alloc.take})`);
+                                    }
+
+                                    // Calc Updates
+                                    let newSource = currentSource - alloc.take;
+                                    const updatePayload = { lastUpdate: new Date() };
+
+                                    if (sourceLocale === mainWarehouse) {
+                                        updatePayload.giacenzaAttuale = newSource;
+                                    } else {
+                                        updatePayload[`locali.${sourceLocale}`] = newSource;
+                                    }
+
+                                    if (destLocale !== 'Carrello') {
+                                        if (destLocale === mainWarehouse) {
+                                            const oldDest = Number(data.giacenzaAttuale || 0);
+                                            // If Source!=Magazzino and Dest==Magazzino:
+                                            if (sourceLocale !== mainWarehouse) {
+                                                updatePayload.giacenzaAttuale = oldDest + alloc.take;
+                                            }
+                                        } else {
+                                            const oldDest = Number(currentLocals[destLocale] || 0);
+                                            // If Source != Dest, keys are different.
+                                            updatePayload[`locali.${destLocale}`] = oldDest + alloc.take;
+                                        }
+                                    }
+
+                                    t.update(docRef, updatePayload);
+                                });
+
+                                await getCollectionRef('movimenti_reparto').add({
+                                    data: new Date(),
+                                    aic: alloc.aic,
+                                    nome: alloc.nome,
+                                    quantita: alloc.take,
+                                    tipo: 'scarico_ordine',
+                                    destinazione: destLocale,
+                                    locale: sourceLocale,
+                                    gtin: alloc.gtin || null,
+                                    user: currentUser.email,
+                                    ruolo: userRole,
+                                    note: `Ordine IA (Originale: ${item.raw.name})`
+                                });
+
+                                successCount++;
+
+                            } catch (err) {
+                                console.error(`Errore batch ${alloc.batchId}:`, err);
+                                failCount++;
+                            }
+                        }
+                    }
+
+                    alert(`Elaborazione completata.\n✅ Movimenti: ${successCount}\n❌ Errori: ${failCount}`);
+                    window.clearOrdineTable();
+
+                    btn.innerHTML = oldText;
+                    btn.disabled = false;
+
+                } catch (e) {
+                    console.error("Errore generale scarico ordine:", e);
+                    alert("Errore critico: " + e.message);
+                    const btn = document.querySelector('button[onclick="window.executeOrderUnload()"]');
+                    if (btn) btn.disabled = false;
+                }
+            };
 
         </script>
-
 </body>
 
 </html>
