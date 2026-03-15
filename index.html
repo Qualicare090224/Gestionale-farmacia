@@ -5,9 +5,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestionale Farmaci - Admin</title>
+    <!-- Icons -->
+    <link rel="icon" type="image/jpeg"
+        href="https://raw.githubusercontent.com/Lucky6796/app-inventario/main/IMG_7226.jpeg">
+    <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/Lucky6796/app-inventario/main/IMG_7226.jpeg">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bwip-js/4.5.1/bwip-js-min.js"></script>
 
     <!-- FIREBASE SDK - VERSIONE COMPAT -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -26,6 +31,46 @@
 
         @media print {
 
+            /* Compact 'Ordini' list for better printing */
+            #tab-ordini table,
+            #tab-ordini th,
+            #tab-ordini td {
+                font-size: 10px !important;
+                padding: 2px 4px !important;
+            }
+
+            #tab-ordini th:nth-child(5),
+            #tab-ordini td:nth-child(5) {
+                max-width: 150px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            #tab-ordini th:nth-child(4),
+            #tab-ordini td:nth-child(4) {
+                max-width: 100px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            #tab-ordini th:nth-child(3),
+            #tab-ordini td:nth-child(3) {
+                max-width: 150px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            #tab-ordini th:last-child,
+            #tab-ordini td:last-child {
+                font-size: 14px !important;
+                font-weight: bold !important;
+                width: 80px;
+                background-color: transparent !important;
+            }
+
             .navbar,
             .sidebar,
             .no-print,
@@ -41,9 +86,38 @@
                 margin: 0;
             }
 
-            body {
+            body,
+            html {
                 margin: 0;
-                padding: 10mm;
+                padding: 0;
+                /* Let the browser handle padding for pages */
+                height: auto !important;
+                overflow: visible !important;
+            }
+
+            /* Override Tailwind constraints that cut off printing */
+            .h-full,
+            .h-screen,
+            .overflow-auto,
+            .overflow-y-auto,
+            .overflow-x-auto,
+            .overflow-hidden,
+            .flex-1,
+            .absolute,
+            .fixed {
+                height: auto !important;
+                overflow: visible !important;
+                position: relative !important;
+                max-height: none !important;
+            }
+
+            table {
+                page-break-inside: auto;
+            }
+
+            tr {
+                page-break-inside: avoid;
+                page-break-after: auto;
             }
         }
 
@@ -83,6 +157,26 @@
             background-color: #dbeafe;
             color: #1e40af;
         }
+
+        /* Resizable Columns */
+        .resizable-th {
+            position: relative;
+        }
+
+        .resizer {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 5px;
+            cursor: col-resize;
+            user-select: none;
+            height: 100%;
+        }
+
+        .resizer:hover,
+        .resizing {
+            background-color: rgba(255, 255, 255, 0.4);
+        }
     </style>
 </head>
 
@@ -98,7 +192,7 @@
                 </div>
                 <div
                     class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white font-bold">
-                    💊</div>
+                    📦</div>
                 <h1 class="text-2xl font-bold text-gray-800">Stock Management <span id="pharmacyNameDisplay"
                         class="text-blue-600 ml-2 text-lg font-normal"></span></h1>
             </div>
@@ -111,6 +205,7 @@
                     class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition no-print">Esci</button>
             </div>
         </div>
+        <!-- rimosso background mass loader per ottimizzazione letture DB -->
     </nav>
 
     <div class="flex h-[calc(100vh-70px)]">
@@ -213,7 +308,7 @@
                     <div class="text-center mb-8">
                         <div
                             class="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center text-white text-3xl mx-auto mb-4">
-                            💊</div>
+                            📦</div>
                         <h2 class="text-3xl font-bold text-gray-800 mb-2">Stock Management</h2>
                     </div>
 
@@ -268,15 +363,42 @@
                         const dd = String(today.getDate()).padStart(2, '0');
                         const dateStr = `${yyyy}${mm}${dd}`;
 
-                        // Use CORSProxy.io as a more robust proxy for local file access
                         const targetUrl = `https://feed.evangelizo.org/v2/reader.php?date=${dateStr}&type=all&lang=IT`;
-                        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+                        
+                        // Array of proxies to try
+                        const proxies = [
+                            { url: `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`, type: 'json' },
+                            { url: `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`, type: 'text' },
+                            { url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`, type: 'text' }
+                        ];
 
-                        const response = await fetch(proxyUrl);
+                        let htmlText = null;
+                        let lastError = null;
 
-                        if (!response.ok) throw new Error('Errore nel recupero del Vangelo');
+                        for (const proxy of proxies) {
+                            try {
+                                const response = await fetch(proxy.url);
+                                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                                
+                                if (proxy.type === 'json') {
+                                    const data = await response.json();
+                                    if (data && data.contents) {
+                                        htmlText = data.contents;
+                                        break;
+                                    }
+                                } else {
+                                    htmlText = await response.text();
+                                    if (htmlText && htmlText.includes('Dal Vangelo')) {
+                                        break;
+                                    }
+                                }
+                            } catch (err) {
+                                lastError = err;
+                                console.warn(`Proxy ${proxy.url} failed:`, err);
+                            }
+                        }
 
-                        const htmlText = await response.text();
+                        if (!htmlText) throw new Error('Tutti i proxy hanno fallito: ' + (lastError ? lastError.message : 'N/A'));
 
                         // Parse the HTML
                         const parser = new DOMParser();
@@ -284,23 +406,30 @@
 
                         // The feed structure is a bit loose. We need to find "Dal Vangelo" and extract following text.
                         // Based on the feed format, sections are separated by <br>.
-                        // We will try to extract the text content and process it.
+                        let bodyContent = doc.body.innerHTML || htmlText;
 
-                        const bodyContent = doc.body.innerHTML;
+                        // Clean up escaped carraige returns if proxy modified it
+                        bodyContent = bodyContent.replace(/\\n/g, '\n').replace(/\\r/g, '\r');
 
-                        // Split by triple breaks which seem to separate readings
-                        const sections = bodyContent.split('<br><br><br>');
+                        // Split by triple or double breaks which seem to separate readings
+                        const breakRegex = /<br\s*\/?>\s*<br\s*\/?>\s*(?:<br\s*\/?>)?/gi;
+                        const sections = bodyContent.split(breakRegex);
 
                         // Find the section containing "Dal Vangelo"
-                        let gospelSection = sections.find(s => s.includes('Dal Vangelo') || s.includes('Vangelo di'));
+                        let gospelSection = sections.find(s => s.toLowerCase().includes('dal vangelo') || s.toLowerCase().includes('vangelo di'));
+
+                        // If not found by split, fallback to regex search block
+                        if (!gospelSection) {
+                             const match = bodyContent.match(/Dal Vangelo.*?<br\s*\/?>([\s\S]*?)(?:<br\s*\/?>\s*<br\s*\/?>|$)/i);
+                             if (match) {
+                                 gospelSection = match[0];
+                             }
+                        }
 
                         let title = "Vangelo del Giorno";
-                        let reference = "";
                         let textContent = "";
 
                         if (gospelSection) {
-                            // Extract Title and Reference (first line usually)
-                            // Example: Dal Vangelo di Gesù Cristo secondo Luca <font dir="ltr">9,22-25.</font>
                             const tempDiv = document.createElement('div');
                             tempDiv.innerHTML = gospelSection;
 
@@ -308,17 +437,21 @@
                             const textParts = tempDiv.innerText.split('\n').filter(line => line.trim() !== '');
 
                             if (textParts.length > 0) {
-                                const firstLine = textParts[0];
-                                // Try to split title and reference if possible, or just keep it as title
-                                title = firstLine;
-                                // Remove first line from text
-                                textContent = textParts.slice(1).join('<br><br>');
+                                // First line contains the reference
+                                let firstLine = textParts[0].trim();
+                                if (firstLine.toLowerCase().startsWith('dal vangelo')) {
+                                     title = firstLine;
+                                     textContent = textParts.slice(1).join('<br><br>');
+                                } else {
+                                     title = "Dal Vangelo";
+                                     textContent = textParts.join('<br><br>');
+                                }
                             } else {
                                 textContent = "Testo non disponibile.";
                             }
                         } else {
-                            // Fallback if structure is unexpected
-                            textContent = "Impossibile estrarre il Vangelo dal feed.";
+                            // Ultimate fallback: Just dump the text if we can't parse structure cleanly
+                            textContent = doc.body.innerText ? doc.body.innerText.substring(0, 500) + "..." : "Impossibile estrarre il Vangelo dal feed.";
                         }
 
                         gospelContainer.innerHTML = `
@@ -381,42 +514,83 @@
                                     class="bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded-lg font-semibold transition">
                                     ✓ Genera Lista Ordini
                                 </button>
-                                <button onclick="window.aggiornaElencoReparto()"
-                                    class="bg-indigo-500 hover:bg-indigo-600 text-white px-6 py-2 rounded-lg font-semibold transition text-sm no-print">
-                                    🔄 Aggiorna Elenco
-                                </button>
+
                                 <button onclick="window.generateExpiryList()"
                                     class="bg-red-500 hover:bg-red-600 text-white px-6 py-2 rounded-lg font-semibold transition text-sm no-print">
                                     📅 Scadenze
                                 </button>
                             </div>
                         </div>
+                        <div id="tableFeedbackMsg"></div>
 
                         <div class="flex-1 overflow-auto bg-white rounded-lg shadow relative">
                             <table class="w-full text-sm">
                                 <thead
                                     class="bg-gradient-to-r from-blue-500 to-purple-600 text-white sticky top-0 z-10">
                                     <tr>
-                                        <th class="px-2 py-2 text-left text-xs">GTIN</th>
-                                        <th id="th-aic" class="px-2 py-2 text-left text-xs">AIC</th>
-                                        <th class="px-2 py-2 text-left text-xs w-32">Nome</th>
-                                        <th id="th-principio" class="px-2 py-2 text-left text-xs w-24">Principio</th>
-                                        <th id="th-ditta" class="px-2 py-2 text-left text-xs w-24">Ditta</th>
-                                        <th class="px-2 py-2 text-left text-xs w-48">Descrizione</th>
-                                        <th class="px-2 py-2 text-right text-xs w-24">Prezzo €</th>
-                                        <th class="px-2 py-2 text-center text-xs">Scad.</th>
-                                        <th class="px-2 py-2 text-center text-xs admin-only" style="display:none;">
-                                            Attivo</th>
-                                        <th id="headerGiacenza" class="px-2 py-2 text-right text-xs">Att.</th>
-                                        <th class="px-2 py-2 text-right text-xs" style="display:none;">Q.Rep</th>
-                                        <th class="px-2 py-2 text-right text-xs admin-only" style="display:none;">Min.
+                                        <th class="resizable-th px-2 py-2 text-left text-[11px] whitespace-nowrap cursor-pointer hover:bg-white/20"
+                                            onclick="window.sortBy('gtin')">GTIN <span id="sort-gtin"></span>
+                                            <div class="resizer" onclick="event.stopPropagation()"></div>
+                                        </th>
+                                        <th id="th-aic"
+                                            class="resizable-th px-2 py-2 text-left text-[11px] whitespace-nowrap cursor-pointer hover:bg-white/20"
+                                            onclick="window.sortBy('aic')">AIC <span id="sort-aic"></span>
+                                            <div class="resizer" onclick="event.stopPropagation()"></div>
+                                        </th>
+                                        <th class="resizable-th px-2 py-2 text-left text-[11px] cursor-pointer hover:bg-white/20 max-w-[120px]"
+                                            onclick="window.sortBy('nome')">Nome <span id="sort-nome"></span>
+                                            <div class="resizer" onclick="event.stopPropagation()"></div>
+                                        </th>
+                                        <th id="th-principio"
+                                            class="resizable-th px-2 py-2 text-left text-[11px] cursor-pointer hover:bg-white/20 max-w-[100px]"
+                                            onclick="window.sortBy('principioAttivo')">Principio <span
+                                                id="sort-principioAttivo"></span>
+                                            <div class="resizer" onclick="event.stopPropagation()"></div>
+                                        </th>
+                                        <th id="th-ditta"
+                                            class="resizable-th px-2 py-2 text-left text-[11px] cursor-pointer hover:bg-white/20 max-w-[80px]"
+                                            onclick="window.sortBy('ditta')">Ditta <span id="sort-ditta"></span>
+                                            <div class="resizer" onclick="event.stopPropagation()"></div>
+                                        </th>
+                                        <th class="resizable-th px-2 py-2 text-left text-[11px] cursor-pointer hover:bg-white/20 max-w-[150px]"
+                                            onclick="window.sortBy('descrizione')">Descrizione <span
+                                                id="sort-descrizione"></span>
+                                            <div class="resizer" onclick="event.stopPropagation()"></div>
+                                        </th>
+                                        <th class="resizable-th px-2 py-2 text-right text-[11px] whitespace-nowrap cursor-pointer hover:bg-white/20"
+                                            onclick="window.sortBy('valoreAcquisto')">Prezzo € <span
+                                                id="sort-valoreAcquisto"></span>
+                                            <div class="resizer" onclick="event.stopPropagation()"></div>
+                                        </th>
+                                        <th class="resizable-th px-2 py-2 text-center text-[11px] whitespace-nowrap cursor-pointer hover:bg-white/20"
+                                            onclick="window.sortBy('scadenza')">Scad. <span id="sort-scadenza"></span>
+                                            <div class="resizer" onclick="event.stopPropagation()"></div>
+                                        </th>
+                                        <th class="resizable-th px-2 py-2 text-center text-[11px] whitespace-nowrap print-hidden">Stampa</th>
+                                        <th class="resizable-th px-2 py-2 text-center text-[11px] admin-only truncate"
+                                            style="display:none;">
+                                            Attivo
+                                            <div class="resizer" onclick="event.stopPropagation()"></div>
+                                        </th>
+                                        <th id="headerGiacenza"
+                                            class="resizable-th px-2 py-2 text-right text-[11px] whitespace-nowrap cursor-pointer hover:bg-white/20"
+                                            onclick="window.sortBy('stock')">Att. <span id="sort-stock"></span>
+                                            <div class="resizer" onclick="event.stopPropagation()"></div>
+                                        </th>
+                                        <th class="resizable-th px-2 py-2 text-right text-[11px] whitespace-nowrap"
+                                            style="display:none;">Q.Rep
+                                            <div class="resizer" onclick="event.stopPropagation()"></div>
+                                        </th>
+                                        <th class="resizable-th px-2 py-2 text-right text-[11px] admin-only whitespace-nowrap"
+                                            style="display:none;">Min.
+                                            <div class="resizer" onclick="event.stopPropagation()"></div>
                                         </th>
 
                                     </tr>
                                 </thead>
                                 <tbody id="farmaci-table" class="divide-y divide-gray-200">
                                     <tr>
-                                        <td colspan="9" class="px-4 py-8 text-center text-gray-500">
+                                        <td colspan="10" class="px-4 py-8 text-center text-gray-500">
                                             <div class="loader mx-auto"></div>
                                         </td>
                                     </tr>
@@ -467,6 +641,7 @@
                 <div id="tab-scadenze" class="tab-content p-6 hidden h-full overflow-auto" style="display:none;">
                     <div class="max-w-7xl">
                         <div class="mb-6 flex justify-between items-center">
+                            <p class="text-sm font-semibold text-gray-500" id="currentRoleDisplay">Caricamento...</p>
                             <h2 class="text-3xl font-bold text-gray-800" id="scadenzeTitle">📅 Farmaci in Scadenza</h2>
                             <div class="flex gap-4">
                                 <button onclick="window.print()"
@@ -1355,7 +1530,9 @@
                     scannedDrugScarico: null, // For Scarico
                     filterOnlyActive: true,
                     ordiniAttuali: [],
-                    failedScanData: null
+                    failedScanData: null,
+                    sortColumn: 'nome',
+                    sortDirection: 'asc'
                 },
                 // Configuration
                 firebaseConfig: {
@@ -1525,19 +1702,43 @@
                     const aicMatch = clean.match(/(?:716|\(716\))\s*(\d{9})/);
                     if (aicMatch) aic = aicMatch[1];
 
+                    // 3.5 Fallback for strings ending in a Code 32 (or exact Code 32)
+                    // The user requested: "se presente un code 32 quello è l'aic"
+                    // Example: 006746674010DTSC -> AIC 033974027 (from Code32 '10DTSC')
+                    const isCode32WithPrefix = /^\d+([0-9BCDFGHJKLMNPQRSTUVWXYZ]{6})$/i.test(clean);
+                    const isExactCode32 = /^[0-9BCDFGHJKLMNPQRSTUVWXYZ]{6}$/i.test(clean);
+
+                    if ((isCode32WithPrefix || isExactCode32) && !aic && !gtin) {
+                        const suffix = clean.slice(-6).toUpperCase();
+                        const decoded = App.utils.decodeCode32(suffix);
+                        if (decoded) {
+                            aic = "0" + decoded;
+                        }
+                    }
+
                     // 4. Lot (10) - Alphanumeric variable length (upto 20)
-                    // Ends at non-alphanum or end of string or next AI start parenthesis
-                    // Regex: (10) then capture chars until ( or end.
-                    const lotMatch = clean.match(/(?:10|\(10\))\s*([A-Za-z0-9]+)/);
+                    // It must be at the start, or preceded by an Application Identifier ending, or have parentheses.
+                    // This prevents catching a Code32 string like '10DTSC' as just a lot of 'DTSC'
+                    const lotMatch = clean.match(/(?:^10|\(10\)|\]C110)\s*([A-Za-z0-9]+)/);
                     if (lotMatch) lotto = lotMatch[1];
 
+                    // If lotto extracted but it was just a raw Code32 format, ignore it
+                    if (lotto && lotto.length === 4 && clean.match(/^10[A-Z0-9]{4}$/)) {
+                        lotto = null;
+                    }
+
                     console.log("Parsed:", { aic, scadenza, gtin, lotto });
+
+                    // Prevent short Code32 strings starting with "10" from being falsely identified as a standalone lotto
+                    if (lotto && !aic && !gtin && !scadenza && clean.length < 12) {
+                        return null; // Fallthrough to tryAdvancedSearch for Code32 decode
+                    }
 
                     if (aic || gtin || scadenza || lotto) return { aic, scadenza, gtin, lotto, raw: scanStr };
                     return null;
                 },
 
-                tryAdvancedSearch: function (rawInput) {
+                tryAdvancedSearch: async function (rawInput) {
                     const cleanInput = rawInput.replace(/^0+/, '');
                     // Use standard array if App state is empty (legacy fallback)
                     const source = App.state.allFarmaci.length > 0 ? App.state.allFarmaci : allFarmaci;
@@ -1573,17 +1774,74 @@
                             const aicCandidate = "0" + decoded;
                             const found = source.find(f => f.aic === aicCandidate || f.aic === String(decoded));
                             if (found) return { drug: found, gtin: null, method: 'code32' };
+
+                            // 3. Fallback to DB query for inactive (not in memory) Code32
+                            try {
+                                const dbMatches = await getCollectionRef('farmaci').where('aic', 'in', [aicCandidate, String(decoded)]).get();
+                                if (!dbMatches.empty) {
+                                    const dbDrug = { id: dbMatches.docs[0].id, ...dbMatches.docs[0].data() };
+                                    if (!dbDrug.aic) dbDrug.aic = dbDrug.id;
+                                    App.state.allFarmaci.push(dbDrug);
+                                    if (allFarmaci !== App.state.allFarmaci) allFarmaci.push(dbDrug);
+                                    return { drug: dbDrug, gtin: null, method: 'db_code32' };
+                                }
+                            } catch (e) {
+                                console.error('Error querying DB for Code32:', e);
+                            }
                         }
                     }
+
+                    // 4. Fallback to DB query for inactive (not in memory) Exact/GTIN
+                    try {
+                        let queryRef = getCollectionRef('farmaci');
+                        const cleanRaw = rawInput.replace(/^0+/, '');
+                        const rawVariations = [...new Set([rawInput, cleanRaw, '0' + cleanRaw, '00' + cleanRaw])].filter(Boolean);
+
+                        const dbMatchAic = await queryRef.where('aic', 'in', rawVariations).get();
+                        let allDocs = [...dbMatchAic.docs];
+
+                        // Try direct document IDs
+                        if (allDocs.length === 0) {
+                            const docPromises = rawVariations.map(a => queryRef.doc(a).get().catch(() => null));
+                            const docResults = await Promise.all(docPromises);
+                            for (const ds of docResults) {
+                                if (ds && ds.exists) {
+                                    allDocs.push(ds);
+                                }
+                            }
+                        }
+
+                        // Try GTIN if still empty
+                        if (allDocs.length === 0) {
+                            const dbMatchGtin = await queryRef.where('gtin', '==', rawInput).get();
+                            allDocs = [...allDocs, ...dbMatchGtin.docs];
+                        }
+
+                        if (allDocs.length > 0) {
+                            const dbDrug = { id: allDocs[0].id, ...allDocs[0].data() };
+                            if (!dbDrug.aic) dbDrug.aic = dbDrug.id;
+                            App.state.allFarmaci.push(dbDrug);
+                            if (allFarmaci !== App.state.allFarmaci) allFarmaci.push(dbDrug);
+                            const matchedGtin = (allDocs[0].data().gtin === rawInput) ? rawInput : null;
+                            return { drug: dbDrug, gtin: matchedGtin, method: 'db_exact' };
+                        }
+                    } catch (e) {
+                        console.error('Error querying DB for exact match:', e);
+                    }
+
                     return null;
                 },
 
                 findDrug: function (aic, scadenza, gtin) {
                     const targetAIC = String(aic).trim();
+                    const cleanTargetAIC = targetAIC.replace(/^0+/, '');
                     const source = App.state.allFarmaci.length > 0 ? App.state.allFarmaci : allFarmaci;
 
-                    // Return all candidates for this AIC
-                    const candidates = source.filter(f => String(f.aic) === targetAIC);
+                    // Return all candidates for this AIC, ignoring leading zeros
+                    const candidates = source.filter(f => {
+                        if (!f.aic) return false;
+                        return String(f.aic).replace(/^0+/, '') === cleanTargetAIC;
+                    });
 
                     let exactMatch = null;
                     if (scadenza) {
@@ -3008,7 +3266,26 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         const roleData = await getUserRole(user.uid);
 
                         if (roleData.timeout) {
-                            console.warn("Role fetch timed out. Using default 'nurse'.");
+                            console.warn("Role fetch timed out.");
+                        }
+
+                        if (roleData.role === 'unauthorized') {
+                            console.warn("User unauthorized or no pharmacy assigned. Signing out.");
+                            await auth.signOut();
+                            let errorDiv = document.getElementById('loginError');
+                            if (errorDiv) {
+                                if (roleData.error === 'no_pharmacy') {
+                                    errorDiv.textContent = "Accesso negato: Nessuna farmacia assegnata a questo account.";
+                                } else if (roleData.error === 'not_found') {
+                                    errorDiv.textContent = "Accesso negato: Utente non trovato nel database.";
+                                } else {
+                                    errorDiv.textContent = "Accesso negato: Errore di autenticazione.";
+                                }
+                                errorDiv.classList.remove('hidden');
+                            }
+                            const btn = document.querySelector('#loginForm button');
+                            if (btn) { btn.disabled = false; btn.textContent = "Accedi"; }
+                            return; // Stop login process
                         }
 
                         if (typeof roleData === 'object') {
@@ -3025,8 +3302,6 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         updateUIBasedOnRole();
 
                         // Async loads - don't await blocking UI
-                        loadAllFarmaci();
-                        loadAllFarmaci();
                         loadLocaliSettings();
                         loadAppConfig(); // NEW: Load Warehouse/Pharmacy Mode
                         loadMovimentiReparto();
@@ -3082,21 +3357,24 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         const userDoc = await db.collection('users').doc(uid).get();
                         if (userDoc.exists) {
                             const data = userDoc.data();
+                            if (!data.pharmacyId && data.role !== 'superadmin' && data.role !== 'admin') {
+                                return { role: 'unauthorized', pharmacyId: null, error: 'no_pharmacy' };
+                            }
                             return {
                                 role: data.role || 'nurse',
                                 pharmacyId: data.pharmacyId || 'default_pharmacy'
                             };
                         }
-                        return { role: 'nurse', pharmacyId: 'default_pharmacy' };
+                        return { role: 'unauthorized', pharmacyId: null, error: 'not_found' };
                     } catch (error) {
                         console.error('Errore nel recupero del ruolo:', error);
-                        return { role: 'nurse', pharmacyId: 'default_pharmacy', error: true };
+                        return { role: 'unauthorized', pharmacyId: null, error: true };
                     }
                 };
 
                 // Timeout Race (3 seconds limit)
                 const timeoutPromise = new Promise(resolve =>
-                    setTimeout(() => resolve({ role: 'nurse', pharmacyId: 'default_pharmacy', timeout: true }), 3000)
+                    setTimeout(() => resolve({ role: 'unauthorized', pharmacyId: null, timeout: true }), 3000)
                 );
 
                 return Promise.race([fetchPromise(), timeoutPromise]);
@@ -3188,15 +3466,32 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
             // ============ GESTIONE REAL-TIME & DATI ============
 
             function setupRealtimeListeners() {
-                // LISTENER FARMACI (Principale)
-                getCollectionRef('farmaci').onSnapshot((snapshot) => {
-                    const farmaci = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); // Use doc.id as primary ID
-                    // Backward comp: ensure .aic is set if missing (it's usually the ID)
-                    farmaci.forEach(f => { if (!f.aic) f.aic = f.id; });
+                // LISTENER FARMACI (Principale - SOLO ATTIVI per reattività immediata)
+                getCollectionRef('farmaci').where('attivo', '==', true).onSnapshot((snapshot) => {
+                    // Costruiamo una temporary map per gestire la fusione (Merge)
+                    const tempMap = new Map();
+                    App.state.allFarmaci.forEach(f => tempMap.set(f.id, f));
+
+                    snapshot.docChanges().forEach((change) => {
+                        const data = { id: change.doc.id, ...change.doc.data() };
+                        if (!data.aic) data.aic = data.id;
+
+                        if (change.type === 'added' || change.type === 'modified') {
+                            tempMap.set(data.id, data);
+                        }
+                        // Non rimuoviamo (removed) se diventa inattivo, 
+                        // vogliamo mantenerlo in memoria per lo scanner!
+                        if (change.type === 'removed') {
+                            // E.g. became attivo=false. Keep it, but update state
+                            const existing = tempMap.get(data.id);
+                            if (existing) existing.attivo = false;
+                        }
+                    });
 
                     // SYNC STATE
-                    App.state.allFarmaci = farmaci;
-                    allFarmaci = farmaci; // Keep legacy sync
+                    const mergedArray = Array.from(tempMap.values());
+                    App.state.allFarmaci = mergedArray;
+                    allFarmaci = mergedArray; // Keep legacy sync
 
                     renderFarmaciTable();
                     if (userRole === 'admin') {
@@ -3206,18 +3501,16 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     console.error("Errore listener farmaci:", error);
                 });
 
+                // Caricamento in background a blocchi (Chunked Fetch) RIMOSSO per abbattere costi Firestore
+
                 // Periodic check inactivty (Admin only)
                 setTimeout(() => {
                     if (userRole === 'admin') checkInactivityRules();
                 }, 5000);
             }
 
-            // Replace manual load with just setup (or empty if setup does it all)
-            window.loadAllFarmaci = function () {
-                // Deprecated in favor of setupRealtimeListeners
-                // But we might want to trigger a "refresh" UI state?
-                console.log("loadAllFarmaci richiamato (gestito da listener real-time)");
-            };
+            // `loadAllProductsChunked` rimosso - sistema passato ad approccio lazy loading scanner-driven
+
 
             window.generateExpiryList = function () {
                 const today = new Date();
@@ -3434,10 +3727,13 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 const lines = data.trim().split('\n');
                 const firstLine = lines[0];
 
-                const separator = firstLine.includes(';') ? ';' : ',';
-                console.log('Separatore rilevato:', separator === ';' ? 'punto e virgola' : 'virgola');
+                let separator = ',';
+                if (firstLine.includes('\t')) separator = '\t';
+                else if (firstLine.includes(';')) separator = ';';
 
-                const headers = firstLine.split(separator).map(h => h.trim().toLowerCase());
+                console.log('Separatore rilevato:', separator === '\t' ? 'tab' : (separator === ';' ? 'punto e virgola' : 'virgola'));
+
+                const headers = firstLine.split(separator).map(h => h.replace(/^"|"$/g, '').trim().toLowerCase());
 
                 const aicIdx = headers.findIndex(h => h === 'aic' || h === 'codice');
                 const principioIdx = headers.findIndex(h => h.includes('principio'));
@@ -3447,8 +3743,9 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 const dittaIdx = headers.indexOf('ditta');
                 // FIX: Add GTIN index lookup
                 const gtinIdx = headers.indexOf('gtin');
+                const prezzoIdx = headers.findIndex(h => h.includes('prezzo'));
 
-                console.log('Header trovati:', { aicIdx, principioIdx, nomeIdx, dittaIdx, descrIdx, fasciaIdx, gtinIdx });
+                console.log('Header trovati:', { aicIdx, principioIdx, nomeIdx, dittaIdx, descrIdx, fasciaIdx, gtinIdx, prezzoIdx });
 
                 if (aicIdx === -1) {
                     alert('Errore: Manca la colonna AIC o Codice nel file importato.');
@@ -3469,11 +3766,18 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 const BATCH_SIZE = 250;
 
                 for (let i = 1; i < lines.length; i++) {
-                    const line = lines[i].trim(); if (!line) continue; const
-                        cols = line.split(separator).map(c => c.trim());
+                    const line = lines[i].trim(); if (!line) continue;
+                    const cols = line.split(separator).map(c => c.replace(/^"|"$/g, '').trim());
                     if (cols.length < headers.length) continue;
                     const aic = cols[aicIdx].trim();
                     if (!aic) continue;
+
+                    let parsedPrezzo = 0;
+                    if (prezzoIdx !== -1 && cols[prezzoIdx]) {
+                        // Clean currency symbols or spaces or quotes, then replace comma with dot for parsing
+                        const rawPrezzo = cols[prezzoIdx].replace(/[€$\s"']/g, '').replace(',', '.');
+                        parsedPrezzo = parseFloat(rawPrezzo) || 0;
+                    }
 
                     const docRef = getCollectionRef('farmaci').doc(aic);
                     const farmacoData = {
@@ -3484,11 +3788,11 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         ditta: cols[dittaIdx] || '',
                         gtin: (gtinIdx !== -1 && cols[gtinIdx]) ? cols[gtinIdx].trim() : null, // Import GTIN if present 
                         attivo: false,
-                        giacenzaMinima: 0,
-                        quantitaOrdine: 0,
-                        giacenzaAttuale: 0,
-                        quantitaReparto: 0,
-                        valoreAcquisto: 0,
+                        giacenzaMinima: firebase.firestore.FieldValue.increment(0),
+                        quantitaOrdine: firebase.firestore.FieldValue.increment(0),
+                        giacenzaAttuale: firebase.firestore.FieldValue.increment(0),
+                        quantitaReparto: firebase.firestore.FieldValue.increment(0),
+                        valoreAcquisto: parsedPrezzo,
                         createdAt: new Date(),
                         lastUpdate: new Date() // Added lastUpdate
                     };
@@ -3536,7 +3840,8 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         const workbook = XLSX.read(data, { type: 'array' });
                         const firstSheetName = workbook.SheetNames[0];
                         const worksheet = workbook.Sheets[firstSheetName];
-                        const csvData = XLSX.utils.sheet_to_csv(worksheet);
+                        // Convert to Tab-Separated Values to safely handle commas inside numbers/strings
+                        const csvData = XLSX.utils.sheet_to_csv(worksheet, { FS: "\t" });
 
                         const imported = await importCSV(csvData);
 
@@ -3545,8 +3850,8 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         document.getElementById('importResultText').textContent = `✅ Importazione completata con successo
                 (${imported} prodotti).`;
 
-                        // Force Reload
-                        await loadAllFarmaci();
+                        // Real-time listener will automatically reload the new imported items
+                        // No need for a hard reload now
 
                         document.getElementById('csvFile').value = '';
                     } catch (error) {
@@ -3710,22 +4015,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 }
             };
 
-            window.loadLocaliSettings = async function () {
-                try {
-                    const doc = await getCollectionRef('settings').doc('locali').get();
-                    if (doc.exists && doc.data().list) {
-                        activeLocales = doc.data().list;
-                    } else {
-                        // First run or missing doc (New Pharmacy?): 
-                        // RESET to defaults to avoid bleeding data from previous session
-                        activeLocales = ['Magazzino Centrale', 'Carrello'];
-                        await saveLocaliSettings();
-                    }
-                    renderLocaleSelector();
-                } catch (e) {
-                    console.error("Errore caricamento locali:", e);
-                }
-            };
+
 
             function renderLocaleSelector() {
                 const sel = document.getElementById('localeSelector');
@@ -3821,17 +4111,19 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
 
                         return localeMin > 0;
                     });
+                }
 
-                    // DEDUPLICATION: Avoid showing multiple 0-stock batches for same product in specific locale
-                    const grouped = {};
-                    filtered.forEach(f => {
-                        const k = f.aic || f.id;
-                        if (!grouped[k]) grouped[k] = [];
-                        grouped[k].push(f);
-                    });
+                // DEDUPLICATION: Avoid showing multiple 0-stock batches or ghost Master docs
+                const grouped = {};
+                filtered.forEach(f => {
+                    const k = f.aic || f.id;
+                    if (!grouped[k]) grouped[k] = [];
+                    grouped[k].push(f);
+                });
 
-                    const deduped = [];
-                    Object.values(grouped).forEach(g => {
+                const deduped = [];
+                Object.values(grouped).forEach(g => {
+                    if (currentLocale !== mainWarehouse) {
                         // Find items with stock IN THIS LOCALE
                         const withStock = g.filter(x => (x.locali && x.locali[currentLocale] > 0));
 
@@ -3841,18 +4133,61 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                             // All are empty (or just Min-visible). Show ONE representative.
                             if (g.length > 0) deduped.push(g[0]);
                         }
-                    });
-                    filtered = deduped;
-                }
+                    } else {
+                        // MAGZZINO CENTRALE DEDUPLICATION
+                        // If we have active batches with stock, hide the empty master doc.
+                        // If everything is 0, show one representative.
+                        const withStock = g.filter(x => (x.giacenzaAttuale || 0) > 0);
+                        if (withStock.length > 0) {
+                            deduped.push(...withStock); // Show only the ones with stock
+                        } else {
+                            // Show ONE representative (prefer the one with the latest expiry, or just the first)
+                            if (g.length > 0) deduped.push(g[0]);
+                        }
+                    }
+                });
+                filtered = deduped;
 
+                // Apply Custom Sorting
                 filtered.sort((a, b) => {
-                    const principioA = (a.principioAttivo || '').toLowerCase();
-                    const principioB = (b.principioAttivo || '').toLowerCase();
-                    return principioA.localeCompare(principioB);
+                    let valA, valB;
+                    const col = App.state.sortColumn;
+
+                    if (col === 'stock') {
+                        valA = currentLocale === mainWarehouse ? a.giacenzaAttuale : (a.locali?.[currentLocale] || 0);
+                        valB = currentLocale === mainWarehouse ? b.giacenzaAttuale : (b.locali?.[currentLocale] || 0);
+                    } else if (col === 'scadenza') {
+                        valA = a.scadenza ? new Date(a.scadenza).getTime() : 0;
+                        valB = b.scadenza ? new Date(b.scadenza).getTime() : 0;
+                    } else if (col === 'valoreAcquisto') {
+                        valA = Number(a.valoreAcquisto) || 0;
+                        valB = Number(b.valoreAcquisto) || 0;
+                    } else {
+                        // String comparison
+                        valA = String(a[col] || '').toLowerCase();
+                        valB = String(b[col] || '').toLowerCase();
+                    }
+
+                    if (valA < valB) return App.state.sortDirection === 'asc' ? -1 : 1;
+                    if (valA > valB) return App.state.sortDirection === 'asc' ? 1 : -1;
+                    return 0;
                 });
 
+                // LIMITING RENDER FOR PERFORMANCE (Cap a 300)
+                const renderLimit = 300;
+                const totalFiltered = filtered.length;
+                if (totalFiltered > renderLimit) {
+                    filtered = filtered.slice(0, renderLimit);
+                    document.getElementById('tableFeedbackMsg').innerHTML = `
+                        <div class="bg-yellow-100 text-yellow-800 p-2 text-center text-sm font-semibold rounded mb-2">
+                            Visualizzati solo i primi ${renderLimit} risultati su ${totalFiltered}. Utilizza la barra di ricerca per trovare prodotti specifici.
+                        </div>`;
+                } else {
+                    document.getElementById('tableFeedbackMsg').innerHTML = ''; // Clear msg
+                }
+
                 if (filtered.length === 0) {
-                    table.innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">Nessun prodotto trovato in ' + currentLocale + '</td></tr>';
+                    table.innerHTML = '<tr><td colspan="10" class="px-4 py-8 text-center text-gray-500">Nessun prodotto trovato in ' + currentLocale + '</td></tr>';
                     return;
                 }
 
@@ -3862,9 +4197,14 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     const masterDrug = allFarmaci.find(d => d.id === f.aic) || f;
 
                     // Minimo Locale Logic (Read from Master)
-                    let effectiveMin = masterDrug.giacenzaMinima || 0;
+                    let effectiveMin = Number(masterDrug.giacenzaMinima) || 0;
+                    const batchMin = Number(f.giacenzaMinima) || 0;
+                    effectiveMin = Math.max(effectiveMin, batchMin);
+
                     if (currentLocale !== mainWarehouse) {
-                        effectiveMin = (masterDrug.locali_minimi && masterDrug.locali_minimi[currentLocale]) ? masterDrug.locali_minimi[currentLocale] : 0;
+                        const masterLocMin = (masterDrug.locali_minimi && masterDrug.locali_minimi[currentLocale]) ? Number(masterDrug.locali_minimi[currentLocale]) : 0;
+                        const batchLocMin = (f.locali_minimi && f.locali_minimi[currentLocale]) ? Number(f.locali_minimi[currentLocale]) : 0;
+                        effectiveMin = Math.max(masterLocMin, batchLocMin);
                     }
 
                     // Stock View (Read from specific Batch/Item 'f' because stock is distinct)
@@ -3893,10 +4233,16 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     }
 
                     let attCell = '';
-                    if (userRole === 'admin' && currentLocale === mainWarehouse) {
-                        attCell = `<td class="px-2 py-2 text-right text-xs font-semibold cursor-pointer hover:bg-blue-200"
-                        onclick="window.startInlineEdit(this, '${f.aic}', 'giacenzaAttuale', ${f.giacenzaAttuale})">
-                        ${displayStock}</td>`;
+                    if (userRole === 'admin') {
+                        if (currentLocale === mainWarehouse) {
+                            attCell = `<td class="px-2 py-2 text-right text-xs font-semibold cursor-pointer hover:bg-blue-200"
+                            onclick="window.startInlineEdit(this, '${f.id || f.aic}', 'giacenzaAttuale', ${f.giacenzaAttuale || 0})">
+                            ${displayStock}</td>`;
+                        } else {
+                            attCell = `<td class="px-2 py-2 text-right text-xs font-semibold cursor-pointer hover:bg-blue-200"
+                            onclick="window.startInlineEdit(this, '${f.id || f.aic}', 'locali.${currentLocale.replace(/'/g, "\\'")}', ${f.locali?.[currentLocale] || 0})">
+                            ${displayStock}</td>`;
+                        }
                     } else {
                         attCell = `<td class="px-2 py-2 text-right text-xs font-semibold">${displayStock}</td>`;
                     }
@@ -3919,14 +4265,18 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     } else { scadenzaClass += 'text-gray-300'; }
 
                     return ` <tr class="${rowClass}">
-                        <td class="px-2 py-2 text-xs font-mono text-gray-500">${f.gtin || '-'}</td>
-                        <td class="px-2 py-2 text-xs font-mono font-bold">${f.aic}</td>
-                        <td class="px-2 py-2 text-xs font-semibold truncate" title="${f.nome}">${f.nome}</td>
-                        <td class="px-2 py-2 text-xs truncate max-w-[6rem]" title="${f.principioAttivo}">
+                        <td class="px-2 py-2 text-[11px] font-mono text-gray-500">${f.gtin || '-'}</td>
+                        <td class="px-2 py-2 text-[11px] font-mono font-bold">${f.aic}</td>
+                        <td class="px-2 py-2 text-[11px] font-semibold truncate max-w-[120px]" title="${f.nome}">${f.nome}</td>
+                        <td class="px-2 py-2 text-[11px] truncate max-w-[100px]" title="${f.principioAttivo}">
                             ${f.principioAttivo || '-'}</td>
-                        <td class="px-2 py-2 text-xs truncate max-w-[6rem]" title="${f.ditta}">${f.ditta || '-'}</td>
-                        <td class="px-2 py-2 text-xs truncate" title="${f.descrizione}">${f.descrizione}</td>
-                        <td class="px-2 py-2 text-right text-xs font-semibold cursor-pointer hover:bg-blue-200"
+                        <td class="px-2 py-2 text-[11px] truncate max-w-[80px]" title="${f.ditta}">${f.ditta || '-'}</td>
+                        <td class="px-2 py-2 text-[11px] truncate max-w-[150px] ${userRole === 'admin' ? 'cursor-pointer hover:bg-blue-200' : ''}" 
+                            title="${f.descrizione}" 
+                            ${userRole === 'admin' ? `onclick="window.startInlineEditString(this, '${f.id || f.aic}', 'descrizione', '${(f.descrizione || '').replace(/'/g, "\\'")}')"` : ''}>
+                            ${f.descrizione || ''}
+                        </td>
+                        <td class="px-2 py-2 text-right text-[11px] font-semibold cursor-pointer hover:bg-blue-200"
                             onclick="window.startInlineEdit(this, '${f.id || f.aic}', 'valoreAcquisto', ${f.valoreAcquisto || 0})">
                             € ${Number(f.valoreAcquisto || 0).toFixed(2)}
                         </td>
@@ -3935,19 +4285,116 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                             <div class="${scadenzaClass}" title="${scadenzaTitle}">${f.scadenza ?
                             formatDateIT(f.scadenza) : '-'}</div>
                         </td>
+                        <td class="px-2 py-2 text-center text-lg cursor-pointer hover:bg-gray-200 print-hidden"
+                            onclick="window.printDataMatrix('${(f.gtin || '').replace(/'/g, "\\'")}', '${(f.aic || '').replace(/'/g, "\\'")}', '${(f.lotto || '').replace(/'/g, "\\'")}', '${(f.scadenza || '').replace(/'/g, "\\'")}', '${(f.nome || '').replace(/'/g, "\\'")}')"
+                            title="Stampa DataMatrix">🖨️</td>
                         ${adminCheckbox}
                         ${attCell}
-                        <td class="px-2 py-2 text-right text-xs font-semibold cursor-pointer hover:bg-blue-200" style="display:none;"
-                            onclick="window.startInlineEdit(this, '${f.aic}', 'quantitaReparto', ${f.quantitaReparto})">
-                            ${f.quantitaReparto}</td>
+                        <td class="px-2 py-2 text-right text-[11px] font-semibold cursor-pointer hover:bg-blue-200" style="display:none;"
+                            onclick="window.startInlineEdit(this, '${f.id || f.aic}', 'quantitaReparto', ${f.quantitaReparto || 0})">
+                            ${f.quantitaReparto || 0}</td>
                         ${userRole === 'admin' ? `<td
-                            class="px-2 py-2 text-right text-xs cursor-pointer hover:bg-blue-200"
-                            onclick="window.startInlineEdit(this, '${f.aic}', 'giacenzaMinima', ${effectiveMin})">
+                            class="px-2 py-2 text-right text-[11px] cursor-pointer hover:bg-blue-200"
+                            onclick="window.startInlineEdit(this, '${masterDrug.id || f.aic}', 'giacenzaMinima', ${effectiveMin})">
                             ${effectiveMin}</td>` : ''}
                         </tr>
                         `;
                 }).join('');
+
+                // Update Sort Icons
+                const icons = ['gtin', 'aic', 'nome', 'principioAttivo', 'ditta', 'descrizione', 'valoreAcquisto', 'scadenza', 'stock'];
+                icons.forEach(id => {
+                    const el = document.getElementById(`sort-${id}`);
+                    if (el) {
+                        if (App.state.sortColumn === id) {
+                            el.innerHTML = App.state.sortDirection === 'asc' ? ' ▲' : ' ▼';
+                        } else {
+                            el.innerHTML = ''; // Clear others
+                        }
+                    }
+                });
             }
+
+            window.sortBy = function (column) {
+                if (App.state.sortColumn === column) {
+                    // Toggle direction
+                    App.state.sortDirection = App.state.sortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    // New column, default to asc
+                    App.state.sortColumn = column;
+                    App.state.sortDirection = 'asc';
+                }
+                renderFarmaciTable();
+            };
+
+            window.printDataMatrix = function(gtin, aic, lotto, scadenza, nome) {
+                let str = "";
+                if (gtin && gtin !== 'undefined') str += `(01)${gtin}`;
+                if (scadenza && scadenza !== 'undefined') {
+                    const d = new Date(scadenza);
+                    const yy = String(d.getFullYear()).slice(-2);
+                    const mm = String(d.getMonth() + 1).padStart(2, '0');
+                    const dd = String(d.getDate()).padStart(2, '0');
+                    str += `(17)${yy}${mm}${dd}`;
+                }
+                if (lotto && lotto !== 'undefined') str += `(10)${lotto}`;
+                if (aic && aic !== 'undefined') {
+                    const paddedAic = String(aic).padStart(9, '0');
+                    str += `(716)${paddedAic}`;
+                }
+
+                if (!str) {
+                    alert("Dati insufficienti per generare il DataMatrix");
+                    return;
+                }
+
+                const canvas = document.createElement('canvas');
+                try {
+                    bwipjs.toCanvas(canvas, {
+                        bcid: 'datamatrix',
+                        text: str,
+                        scale: 3,
+                        includetext: false
+                    });
+                } catch (e) {
+                    alert("Errore generazione barcode: " + e);
+                    return;
+                }
+
+                const win = window.open('', '_blank', 'width=400,height=400');
+                if (!win) {
+                    alert("Permetti i popup per stampare il DataMatrix.");
+                    return;
+                }
+                win.document.write(`
+                    <html>
+                    <head>
+                        <title>Stampa DataMatrix</title>
+                        <style>
+                            body { text-align: center; font-family: sans-serif; margin: 0; padding-top: 20px; }
+                            @media print {
+                                @page { margin: 0; }
+                                body { padding: 0; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px;">${nome || 'Prodotto'}</h4>
+                        <img src="${canvas.toDataURL('image/png')}" style="max-width: 150px;" />
+                        <p style="margin: 10px 0 0 0; font-size: 10px; color: #333; word-break: break-all; max-width: 250px; margin-left: auto; margin-right: auto;">${str}</p>
+                        <scr` + `ipt>
+                            window.onload = function() {
+                                setTimeout(function() { 
+                                    window.print(); 
+                                    window.close();
+                                }, 300);
+                            };
+                        </scr` + `ipt>
+                    </body>
+                    </html>
+                `);
+                win.document.close();
+            };
 
             window.startInlineDateEdit = function (cell, docId, value) {
                 if (userRole !== 'admin') return;
@@ -4000,7 +4447,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 });
             };
 
-            window.startInlineEdit = function (cell, aic, field, value) {
+            window.startInlineEdit = function (cell, docId, field, value) {
                 if (userRole === 'nurse' && field !== 'quantitaReparto') {
                     alert('Non hai i permessi per modificare questo campo.');
                     return;
@@ -4026,40 +4473,102 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         try {
                             const updateData = {};
 
-                            // Handling Per-Locale Minimums
-                            // ROBUST FIX: Ensure Master Document Exists or Create it
-                            const docRef = getCollectionRef('farmaci').doc(aic);
+                            const editedDrug = allFarmaci.find(f => f.id === docId);
 
-                            // Check if document exists using a GET (safest)
-                            // Or simpler: Always use SET with MERGE to handle both "Create" and "Update"
-                            // This solves "No document to update" error automatically.
+                            if (field === 'giacenzaMinima' && editedDrug) {
+                                // Update all products sharing the same AIC or GTIN
+                                const targetAic = editedDrug.aic;
+                                const targetGtin = editedDrug.gtin;
 
-                            if (field === 'giacenzaMinima' && currentLocale !== mainWarehouse) {
-                                // Save to locali_minimi.${currentLocale}
-                                const mergeData = { locali_minimi: { [currentLocale]: newValue } };
-                                await docRef.set(mergeData, { merge: true });
-                            } else {
-                                // Default behavior
-                                updateData[field] = newValue;
-                                // If we are editing a field on a potentially non-existent Master (orphan batch case)
-                                // We should perform a check or just use SET+MERGE implies assuming it's the right doc.
-                                // BUT if we use SET with { field: val }, we might overwrite if not careful? 
-                                // { merge: true } preserves other fields.
-                                await docRef.set(updateData, { merge: true });
-                            }
+                                const siblingsToUpdate = allFarmaci.filter(f => {
+                                    if (targetAic && String(f.aic).replace(/^0+/, '') === String(targetAic).replace(/^0+/, '')) return true;
+                                    if (targetGtin && String(f.gtin).trim() === String(targetGtin).trim()) return true;
+                                    return f.id === docId;
+                                });
 
-                            // Check Cleanup
-                            const updatedDrug = allFarmaci.find(f => f.aic === aic);
-                            if (updatedDrug) {
-                                // Manually update local mock to avoid race condition/flicker
-                                if (field === 'giacenzaMinima' && currentLocale !== mainWarehouse) {
-                                    if (!updatedDrug.locali_minimi) updatedDrug.locali_minimi = {};
-                                    updatedDrug.locali_minimi[currentLocale] = newValue;
-                                } else {
-                                    updatedDrug[field] = newValue;
+                                for (const sibling of siblingsToUpdate) {
+                                    const sibRef = getCollectionRef('farmaci').doc(sibling.id);
+                                    if (currentLocale !== mainWarehouse) {
+                                        await sibRef.set({
+                                            locali_minimi: { [currentLocale]: newValue }
+                                        }, { merge: true });
+
+                                        // Auto-sync in UI state
+                                        if (!sibling.locali_minimi) sibling.locali_minimi = {};
+                                        sibling.locali_minimi[currentLocale] = newValue;
+                                    } else {
+                                        await sibRef.set({
+                                            giacenzaMinima: newValue
+                                        }, { merge: true });
+
+                                        // Auto-sync in UI state
+                                        sibling.giacenzaMinima = newValue;
+                                    }
                                 }
 
-                                await checkAndCleanupBatch(aic, updatedDrug);
+                                // Explicitly update the Master doc in the database to prevent stale reads
+                                if (targetAic) {
+                                    const masterRef = getCollectionRef('farmaci').doc(targetAic);
+                                    try {
+                                        if (currentLocale !== mainWarehouse) {
+                                            await masterRef.update({
+                                                [`locali_minimi.${currentLocale}`]: newValue
+                                            });
+                                        } else {
+                                            await masterRef.update({
+                                                giacenzaMinima: newValue
+                                            });
+                                        }
+                                    } catch (e) {
+                                        if (e.code === 'not-found') {
+                                            const payload = {
+                                                id: targetAic,
+                                                aic: targetAic,
+                                                nome: editedDrug.nome || 'N/D',
+                                                principioAttivo: editedDrug.principioAttivo || '',
+                                                ditta: editedDrug.ditta || '',
+                                                descrizione: editedDrug.descrizione || '',
+                                                gtin: editedDrug.gtin || '',
+                                                attivo: false // Master skeleton initially inactive
+                                            };
+                                            if (currentLocale !== mainWarehouse) {
+                                                payload.locali_minimi = { [currentLocale]: newValue };
+                                            } else {
+                                                payload.giacenzaMinima = newValue;
+                                            }
+                                            await masterRef.set(payload);
+                                        }
+                                    }
+                                }
+
+                                // Perform cleanup for the primarily edited item
+                                await checkAndCleanupBatch(docId, editedDrug);
+
+                            } else {
+                                // Default behavior for other fields
+                                const docRef = getCollectionRef('farmaci').doc(docId);
+
+                                if (field.startsWith('locali.')) {
+                                    const localeName = field.split('.')[1];
+                                    if (!updateData.locali) updateData.locali = {};
+                                    updateData.locali[localeName] = newValue;
+                                } else {
+                                    updateData[field] = newValue;
+                                }
+
+                                updateData.attivo = true;
+                                await docRef.set(updateData, { merge: true });
+
+                                if (editedDrug) {
+                                    if (field.startsWith('locali.')) {
+                                        const localeName = field.split('.')[1];
+                                        if (!editedDrug.locali) editedDrug.locali = {};
+                                        editedDrug.locali[localeName] = newValue;
+                                    } else {
+                                        editedDrug[field] = newValue;
+                                    }
+                                    await checkAndCleanupBatch(docId, editedDrug);
+                                }
                             }
 
                             if (field === 'valoreAcquisto') {
@@ -4125,7 +4634,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                         ({ aic, scadenza, gtin, lotto } = matrixResult);
                     } else {
                         // Fallback/Advanced
-                        const advanced = App.scanner.tryAdvancedSearch(rawInput);
+                        const advanced = await App.scanner.tryAdvancedSearch(rawInput);
                         if (advanced && advanced.drug) {
                             aic = advanced.drug.aic;
                             gtin = advanced.gtin;
@@ -4176,18 +4685,71 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
 
                     if (aic) {
                         search = App.scanner.findDrug(aic, scadenza, gtin);
+                        if (search.candidates.length === 0) {
+                            try {
+                                const cleanAic = String(aic).replace(/^0+/, '');
+                                const aicVariations = [...new Set([String(aic), cleanAic, '0' + cleanAic, '00' + cleanAic])].filter(Boolean);
+
+                                const dbMatches = await getCollectionRef('farmaci').where('aic', 'in', aicVariations).get();
+                                const docPromises = aicVariations.map(a => getCollectionRef('farmaci').doc(a).get().catch(() => null));
+                                const docResults = await Promise.all(docPromises);
+
+                                let added = false;
+                                if (!dbMatches.empty) {
+                                    dbMatches.docs.forEach(doc => {
+                                        const dbDrug = { id: doc.id, ...doc.data() };
+                                        if (!dbDrug.aic) dbDrug.aic = dbDrug.id;
+                                        if (!App.state.allFarmaci.find(d => d.id === dbDrug.id)) {
+                                            App.state.allFarmaci.push(dbDrug);
+                                            if (allFarmaci !== App.state.allFarmaci) allFarmaci.push(dbDrug);
+                                            added = true;
+                                        }
+                                    });
+                                }
+
+                                docResults.forEach(docSnap => {
+                                    if (docSnap && docSnap.exists) {
+                                        const dbDrug = { id: docSnap.id, ...docSnap.data() };
+                                        if (!dbDrug.aic) dbDrug.aic = dbDrug.id;
+                                        if (!App.state.allFarmaci.find(d => d.id === dbDrug.id)) {
+                                            App.state.allFarmaci.push(dbDrug);
+                                            if (allFarmaci !== App.state.allFarmaci) allFarmaci.push(dbDrug);
+                                            added = true;
+                                        }
+                                    }
+                                });
+
+                                if (added) {
+                                    search = App.scanner.findDrug(aic, scadenza, gtin);
+                                }
+                            } catch (e) { console.error('DB Aic search error', e); }
+                        }
                     } else if (gtin) {
                         // Search by GTIN
-                        const candidates = App.state.allFarmaci.filter(f => f.gtin === gtin);
+                        let candidates = App.state.allFarmaci.filter(f => f.gtin === gtin);
+                        if (candidates.length === 0) {
+                            try {
+                                const dbMatches = await getCollectionRef('farmaci').where('gtin', '==', String(gtin)).get();
+                                if (!dbMatches.empty) {
+                                    dbMatches.docs.forEach(doc => {
+                                        const dbDrug = { id: doc.id, ...doc.data() };
+                                        if (!dbDrug.aic) dbDrug.aic = dbDrug.id;
+                                        if (!App.state.allFarmaci.find(d => d.id === dbDrug.id)) {
+                                            App.state.allFarmaci.push(dbDrug);
+                                            if (allFarmaci !== App.state.allFarmaci) allFarmaci.push(dbDrug);
+                                        }
+                                    });
+                                    candidates = App.state.allFarmaci.filter(f => f.gtin === gtin);
+                                }
+                            } catch (e) { console.error('DB Gtin search error', e); }
+                        }
+
                         // If we find candidates, we treat them like we found an AIC
                         if (candidates.length > 0) {
                             search.candidates = candidates;
                             // Try to find exact match if scadenza exists
                             if (scadenza) {
                                 search.exactMatch = candidates.find(f => f.scadenza === scadenza);
-                            } else {
-                                // If no scadenza scanned, but multiple batches exist, we need to pick one?
-                                // Or if 1 candidate, use it.
                             }
                             // Use first candidate as template if no exact match
                             if (!search.exactMatch) search.template = candidates[0];
@@ -4557,31 +5119,87 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
 
                     let aic = null, scadenza = null, gtin = null;
 
-                    // 1. Identify
-                    const matrixResult = App.scanner.parseDataMatrix(rawInput);
-                    if (matrixResult) {
-                        ({ aic, scadenza, gtin } = matrixResult);
+                    // 1. Extractor
+                    const parsed = App.scanner.parseDataMatrix(rawInput);
+
+                    if (parsed) {
+                        ({ aic, scadenza, gtin, lotto } = parsed);
                     } else {
-                        const advanced = App.scanner.tryAdvancedSearch(rawInput);
-                        if (advanced && advanced.drug) {
+                        const advanced = await App.scanner.tryAdvancedSearch(rawInput);
+                        if (advanced) {
                             aic = advanced.drug.aic;
                             gtin = advanced.gtin;
-                            showScanFeedbackScarico(`✅ Identificato: ${advanced.drug.nome}`, 'success');
                         } else {
-                            // Fail
-                            showScanFeedbackScarico(`Farmaco non trovato/riconosciuto.`, 'error');
-                            return;
+                            showScanFeedbackScarico("Prodotto non riconosciuto.", 'error');
+                            scanInput.value = ''; scanInput.focus(); return;
                         }
                     }
 
                     // 2. Find Best Match for UNLOAD (Prioritize stock > 0)
                     let candidates = [];
                     if (aic) {
-                        candidates = App.state.allFarmaci.filter(f => String(f.aic) === String(aic));
+                        const cleanTarget = String(aic).replace(/^0+/, '');
+                        candidates = App.state.allFarmaci.filter(f => f.aic && String(f.aic).replace(/^0+/, '') === cleanTarget);
+
+                        if (candidates.length === 0) {
+                            try {
+                                const aicVariations = [...new Set([String(aic), cleanTarget, '0' + cleanTarget, '00' + cleanTarget])].filter(Boolean);
+
+                                const dbMatches = await getCollectionRef('farmaci').where('aic', 'in', aicVariations).get();
+                                const docPromises = aicVariations.map(a => getCollectionRef('farmaci').doc(a).get().catch(() => null));
+                                const docResults = await Promise.all(docPromises);
+
+                                let added = false;
+                                if (!dbMatches.empty) {
+                                    dbMatches.docs.forEach(doc => {
+                                        const dbDrug = { id: doc.id, ...doc.data() };
+                                        if (!dbDrug.aic) dbDrug.aic = dbDrug.id;
+                                        if (!App.state.allFarmaci.find(d => d.id === dbDrug.id)) {
+                                            App.state.allFarmaci.push(dbDrug);
+                                            if (allFarmaci !== App.state.allFarmaci) allFarmaci.push(dbDrug);
+                                            added = true;
+                                        }
+                                    });
+                                }
+
+                                docResults.forEach(docSnap => {
+                                    if (docSnap && docSnap.exists) {
+                                        const dbDrug = { id: docSnap.id, ...docSnap.data() };
+                                        if (!dbDrug.aic) dbDrug.aic = dbDrug.id;
+                                        if (!App.state.allFarmaci.find(d => d.id === dbDrug.id)) {
+                                            App.state.allFarmaci.push(dbDrug);
+                                            if (allFarmaci !== App.state.allFarmaci) allFarmaci.push(dbDrug);
+                                            added = true;
+                                        }
+                                    }
+                                });
+
+                                if (added) {
+                                    candidates = App.state.allFarmaci.filter(f => f.aic && String(f.aic).replace(/^0+/, '') === cleanTarget);
+                                }
+                            } catch (e) { console.error('DB Aic search error', e); }
+                        }
                     } else if (gtin) {
                         candidates = App.state.allFarmaci.filter(f => f.gtin === gtin);
-                        // If we found via GTIN, imply "AIC" for display referencing if needed, or just rely on the object
+                        if (candidates.length === 0) {
+                            try {
+                                const dbMatches = await getCollectionRef('farmaci').where('gtin', '==', String(gtin)).get();
+                                if (!dbMatches.empty) {
+                                    dbMatches.docs.forEach(doc => {
+                                        const dbDrug = { id: doc.id, ...doc.data() };
+                                        if (!dbDrug.aic) dbDrug.aic = dbDrug.id;
+                                        if (!App.state.allFarmaci.find(d => d.id === dbDrug.id)) {
+                                            App.state.allFarmaci.push(dbDrug);
+                                            if (allFarmaci !== App.state.allFarmaci) allFarmaci.push(dbDrug);
+                                        }
+                                    });
+                                    candidates = App.state.allFarmaci.filter(f => f.gtin === gtin);
+                                }
+                            } catch (e) { console.error('DB Gtin search error', e); }
+                        }
                     }
+                    // If we found via GTIN, imply "AIC" for display referencing if needed, or just rely on the object
+
 
                     if (candidates.length === 0) {
                         showScanFeedbackScarico(`Nessun farmaco trovato con AIC/GTIN: ${aic || gtin}`, 'error');
@@ -5277,6 +5895,18 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
 
                     // Accumulate Stock for Current Locale
                     const mainWarehouseForOrder = (typeof activeLocales !== 'undefined' && activeLocales.length > 0) ? activeLocales[0] : 'Magazzino Centrale';
+
+                    // Update Min stock dynamically across batches to prevent 0-value bugs from inactive masters
+                    let batchMin = 0;
+                    if (currentLocale !== mainWarehouseForOrder) {
+                        batchMin = (f.locali_minimi && f.locali_minimi[currentLocale]) ? Number(f.locali_minimi[currentLocale]) : 0;
+                    } else {
+                        batchMin = Number(f.giacenzaMinima) || 0;
+                    }
+                    if (batchMin > productMap[masterId].min) {
+                        productMap[masterId].min = batchMin;
+                    }
+
                     const stock = currentLocale === mainWarehouseForOrder ? (Number(f.giacenzaAttuale) || 0) : (Number(f.locali?.[currentLocale]) || 0);
                     productMap[masterId].currentStock += stock;
                 });
@@ -5408,13 +6038,58 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
             }
 
             const searchInput = document.getElementById('searchInput');
+            let searchDebounce = null;
             if (searchInput) {
-                searchInput.addEventListener('input', renderFarmaciTable);
-            }
-            // Init Locali
-            loadLocaliSettings();
-            loadAnniDisponibili();
+                searchInput.addEventListener('input', (e) => {
+                    // 1. Immediate local memory filter
+                    renderFarmaciTable();
 
+                    const val = e.target.value.trim().toUpperCase();
+                    if (val.length >= 4) { // Only query DB for meaningful lengths
+                        clearTimeout(searchDebounce);
+                        searchDebounce = setTimeout(async () => {
+                            try {
+                                const qRef = getCollectionRef('farmaci');
+                                let dbMatches;
+
+                                // If numeric, also search AIC, otherwise search Name
+                                if (/^\d+$/.test(val)) {
+                                    dbMatches = await qRef.where('aic', '>=', val).where('aic', '<=', val + '\uf8ff').limit(30).get();
+                                } else {
+                                    dbMatches = await qRef.where('nome', '>=', val).where('nome', '<=', val + '\uf8ff').limit(30).get();
+                                }
+
+                                let added = false;
+                                if (!dbMatches.empty) {
+                                    dbMatches.docs.forEach(doc => {
+                                        const data = { id: doc.id, ...doc.data() };
+                                        if (!data.aic) data.aic = data.id;
+
+                                        // Merge if not already in memory
+                                        if (!allFarmaci.find(f => f.id === data.id)) {
+                                            allFarmaci.push(data);
+                                            // Keep App.state.allFarmaci synced just in case they are different refs
+                                            if (allFarmaci !== App.state.allFarmaci) {
+                                                if (!App.state.allFarmaci.find(f => f.id === data.id)) {
+                                                    App.state.allFarmaci.push(data);
+                                                }
+                                            }
+                                            added = true;
+                                        }
+                                    });
+                                }
+
+                                if (added) {
+                                    renderFarmaciTable(); // Refresh table to show newly downloaded inactive items
+                                }
+                            } catch (error) {
+                                console.error("Errore lazy load ricerca:", error);
+                            }
+                        }, 600); // 600ms debounce
+                    }
+                });
+            }
+            // Init Locali deferred to auth state change
 
             // ============ BOLLA / GEMINI LOGIC ============
 
@@ -5443,7 +6118,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 try {
                     const base64 = await readFileAsBase64(file);
                     const products = await callAnalyzeBollaFunction(base64, file.type);
-                    renderBollaResults(products);
+                    await renderBollaResults(products);
                 } catch (error) {
                     console.error("Errore analisi bolla:", error);
                     alert("Errore durante l'analisi della bolla: " + error.message);
@@ -5471,7 +6146,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
 
             let currentBollaItems = [];
 
-            function renderBollaResults(products) {
+            async function renderBollaResults(products) {
                 currentBollaItems = products;
                 const tbody = document.getElementById('bollaTableBody');
                 tbody.innerHTML = '';
@@ -5485,10 +6160,21 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                 document.getElementById('bollaLoading').classList.add('hidden');
                 document.getElementById('bollaResults').classList.remove('hidden');
 
-                products.forEach((p, index) => {
+                for (let index = 0; index < products.length; index++) {
+                    const p = products[index];
                     // Try to match with DB
-                    const matched = App.scanner.tryAdvancedSearch(p.code) || {};
+                    const matched = (await App.scanner.tryAdvancedSearch(p.code)) || {};
                     const isKnown = !!matched.drug;
+
+                    // Auto-populate missing details if product is known
+                    if (isKnown) {
+                        if (!p.activeIngredient && matched.drug.principioAttivo) {
+                            p.activeIngredient = matched.drug.principioAttivo;
+                        }
+                        if (!p.company && matched.drug.ditta) {
+                            p.company = matched.drug.ditta;
+                        }
+                    }
 
                     const row = document.createElement('tr');
                     row.className = "hover:bg-gray-50 transition border-b border-gray-100 align-middle";
@@ -5520,7 +6206,7 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
         </td>
         `;
                     tbody.appendChild(row);
-                });
+                }
             }
 
             // ============ SCARICO DA ORDINE (IA) ============
@@ -5804,7 +6490,25 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                             if (parsed) expiryDate = parsed;
                         }
 
-                        const docId = item.lot ? `${cleanCode}_${item.lot.replace(/[^A-Za-z0-9]/g, '')}` : cleanCode;
+                        let docId = cleanCode;
+                        const anyExisting = App.state.allFarmaci.find(f => f.aic === cleanCode);
+
+                        if (anyExisting) {
+                            if (expiryDate && anyExisting.scadenza !== expiryDate) {
+                                const existingBatch = App.state.allFarmaci.find(f => f.aic === cleanCode && f.scadenza === expiryDate);
+                                if (existingBatch) {
+                                    docId = existingBatch.id;
+                                } else {
+                                    const lotSuffix = item.lot ? item.lot.replace(/[^A-Za-z0-9]/g, '') : expiryDate;
+                                    docId = `${cleanCode}_${lotSuffix}`;
+                                }
+                            } else {
+                                const existingMaster = App.state.allFarmaci.find(f => f.aic === cleanCode && !f.id.includes('_'));
+                                docId = existingMaster ? existingMaster.id : anyExisting.id;
+                            }
+                        } else {
+                            docId = cleanCode;
+                        }
 
                         const docRef = getCollectionRef('farmaci').doc(docId);
                         const docSnap = await docRef.get();
@@ -5851,6 +6555,26 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                                 dataCaricamento: loadingDate,
                                 valoreAcquisto: 0 // We don't have price from OCR yet usually
                             });
+                        }
+
+                        // LOG MOVEMENT (CARICO DA BOLLA)
+                        try {
+                            const isGtin = item.code && item.code.length === 13;
+                            await getCollectionRef('movimenti_reparto').add({
+                                data: new Date(),
+                                aic: cleanCode,
+                                nome: item.name,
+                                quantita: Number(item.qty),
+                                tipo: 'carico',
+                                destinazione: (typeof activeLocales !== 'undefined' && activeLocales.length > 0) ? activeLocales[0] : 'Magazzino Centrale',
+                                locale: 'Fornitore (Bolla)', // Source
+                                gtin: isGtin ? item.code : null,
+                                user: currentUser ? currentUser.email : 'unknown',
+                                ruolo: typeof userRole !== 'undefined' ? userRole : 'admin'
+                            });
+                            console.log(`Movement logged for bolla item: ${item.name}`);
+                        } catch (logErr) {
+                            console.error("Failed to log bolla movement:", logErr);
                         }
 
                         successCount++;
@@ -6079,6 +6803,141 @@ ${(data.movimenti || []).slice(0, 10).map(m => `
                     const btn = document.querySelector('button[onclick="window.executeOrderUnload()"]');
                     if (btn) btn.disabled = false;
                 }
+            };
+
+            // ==========================================
+            // UTILITY: COLUMN RESIZING
+            // ==========================================
+            function initResizers() {
+                const table = document.querySelector('table');
+                const resizers = table.querySelectorAll('.resizer');
+                let startX, startWidth, currentTh;
+
+                resizers.forEach(resizer => {
+                    resizer.addEventListener('mousedown', function (e) {
+                        currentTh = resizer.parentElement;
+                        startX = e.pageX;
+                        startWidth = currentTh.offsetWidth;
+
+                        document.body.style.cursor = 'col-resize';
+                        resizer.classList.add('resizing');
+
+                        document.addEventListener('mousemove', mouseMoveHandler);
+                        document.addEventListener('mouseup', mouseUpHandler);
+                        e.stopPropagation();
+                    });
+                });
+
+                function mouseMoveHandler(e) {
+                    if (currentTh) {
+                        const diff = e.pageX - startX;
+                        currentTh.style.minWidth = `${startWidth + diff}px`;
+                        currentTh.style.width = `${startWidth + diff}px`;
+                        currentTh.style.maxWidth = 'none'; // Overrides existing maxWidth classes
+                    }
+                }
+
+                function mouseUpHandler() {
+                    document.body.style.cursor = 'default';
+                    if (currentTh) {
+                        const resizer = currentTh.querySelector('.resizer');
+                        if (resizer) resizer.classList.remove('resizing');
+                    }
+                    currentTh = null;
+                    document.removeEventListener('mousemove', mouseMoveHandler);
+                    document.removeEventListener('mouseup', mouseUpHandler);
+                }
+            }
+
+            // Re-init resizers on every table render
+            const originalRenderTable = window.renderFarmaciTable;
+            window.renderFarmaciTable = function () {
+                if (originalRenderTable) originalRenderTable();
+                setTimeout(initResizers, 100);
+            };
+
+            // ==========================================
+            // INLINE STRING EDITING (For Admins)
+            // ==========================================
+            window.startInlineEditString = function (cell, docId, field, currentValue) {
+                // Prevent multiple inputs or unauthorized edits
+                if (cell.querySelector('input') || cell.querySelector('textarea')) return;
+                if (userRole !== 'admin') return;
+
+                const originalContent = cell.innerText;
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.value = currentValue || '';
+                input.className = 'w-full px-1 py-0.5 text-sm border-2 border-blue-500 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-black';
+                input.style.minWidth = '100px';
+
+                cell.innerHTML = '';
+                cell.appendChild(input);
+                input.focus();
+
+                async function saveChanges() {
+                    const newValue = input.value.trim();
+                    if (newValue === (currentValue || '')) {
+                        cell.innerHTML = originalContent;
+                        return;
+                    }
+
+                    cell.innerHTML = `<span class="text-gray-400">Salvataggio...</span>`;
+
+                    try {
+                        const docRef = getCollectionRef('farmaci').doc(docId);
+
+                        // Edit the Specific Document
+                        await docRef.set({
+                            [field]: newValue
+                        }, { merge: true });
+
+                        // Find and edit ALL siblings with the same AIC (if it's a property shared by the drug family like description)
+                        const editedDrug = App.state.allFarmaci.find(f => f.id === docId);
+                        if (editedDrug && editedDrug.aic) {
+                            const targetAic = editedDrug.aic;
+
+                            // 1. Update Master Document explicitly
+                            const masterRef = getCollectionRef('farmaci').doc(targetAic);
+                            await masterRef.set({
+                                [field]: newValue
+                            }, { merge: true });
+
+                            // 2. Update Siblings in DB
+                            const siblingsToUpdate = App.state.allFarmaci.filter(f => {
+                                return (f.aic === targetAic && f.id !== docId && f.id !== targetAic);
+                            });
+
+                            for (const sibling of siblingsToUpdate) {
+                                const sibRef = getCollectionRef('farmaci').doc(sibling.id);
+                                await sibRef.set({
+                                    [field]: newValue
+                                }, { merge: true });
+
+                                // Auto-sync sibling in UI
+                                sibling[field] = newValue;
+                            }
+                        }
+
+                        // Auto-sync current item in UI state
+                        if (editedDrug) editedDrug[field] = newValue;
+
+                        App.utils.showNotification(`${field} aggiornato a "${newValue}"`, 'success');
+                    } catch (error) {
+                        console.error('Error saving field:', error);
+                        App.utils.showNotification('Errore nel salvataggio: ' + error.message, 'error');
+                    } finally {
+                        renderFarmaciTable(); // Force re-render to restore original template state with new value
+                    }
+                }
+
+                input.onblur = saveChanges;
+                input.onkeydown = (e) => {
+                    if (e.key === 'Enter') saveChanges();
+                    if (e.key === 'Escape') {
+                        cell.innerHTML = originalContent; // Cancel edit
+                    }
+                };
             };
 
         </script>
